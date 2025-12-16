@@ -1,0 +1,106 @@
+{
+  "idl_version": 1,
+
+  "jsonrpc": "2.0",
+
+  "service": "rpc-demo",
+
+  "protocol_version": 1,
+
+  "functions": [
+    {
+      "method": "add",
+      "description": "Return a + b",
+      "params": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "i32" },
+          "b": { "type": "i32" }
+        },
+        "required": ["a", "b"],
+        "additionalProperties": false
+      },
+      "result": { "type": "i32" }
+    },
+    {
+      "method": "sub",
+      "description": "Return a - b",
+      "params": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "i32" },
+          "b": { "type": "i32" }
+        },
+        "required": ["a", "b"],
+        "additionalProperties": false
+      },
+      "result": { "type": "i32" }
+    },
+    {
+      "method": "add_3",
+      "description": "Return a + b + c",
+      "params": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "i32" },
+          "b": { "type": "i32" },
+          "c": { "type": "i32" }
+        },
+        "required": ["a", "b", "c"],
+        "additionalProperties": false
+      },
+      "result": { "type": "i32" }
+    },
+    {
+      "method": "sub_3",
+      "description": "Return a - b - c",
+      "params": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "i32" },
+          "b": { "type": "i32" },
+          "c": { "type": "i32" }
+        },
+        "required": ["a", "b", "c"],
+        "additionalProperties": false
+      },
+      "result": { "type": "i32" }
+    },
+    {
+      "method": "add_double",
+      "description": "Return a + b (double)",
+      "params": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "double" },
+          "b": { "type": "double" }
+        },
+        "required": ["a", "b"],
+        "additionalProperties": false
+      },
+      "result": { "type": "double" }
+    },
+    {
+      "method": "sub_double",
+      "description": "Return a - b (double)",
+      "params": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "double" },
+          "b": { "type": "double" }
+        },
+        "required": ["a", "b"],
+        "additionalProperties": false
+      },
+      "result": { "type": "double" }
+    }
+  ],
+
+  "types": {
+    "i32": { "c_type": "int32_t" },
+    "i64": { "c_type": "int64_t" },
+    "bool": { "c_type": "bool" },
+    "double": { "c_type": "double" },
+    "string": { "c_type": "const char*" }
+  }
+}

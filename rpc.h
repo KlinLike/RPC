@@ -1,3 +1,5 @@
+ #include <stdint.h>
+ 
 typedef struct rpc_header_t {
     uint32_t version;
     uint32_t body_len; // 需要注意64位系统size_t是64bit

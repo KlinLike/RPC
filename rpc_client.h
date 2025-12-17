@@ -1,3 +1,4 @@
 #pragma once
 
-char* rpc_client_call(const char* ip, int port, const char* json);
+int rpc_client_init(const char* ip, int port);
+char* rpc_client_call(const char* json);

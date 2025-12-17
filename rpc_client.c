@@ -14,6 +14,11 @@
 #include "rpc_client.h"
 
 
+static char g_rpc_server_ip[64] = {0};
+static int g_rpc_server_port = 0;
+static bool g_rpc_client_inited = false;
+
+
 // 连接server
 static int conn_server(const char *ip, int port)
 {
@@ -149,9 +154,35 @@ static char* send_recv_close(int fd, const char* json) {
     return body;
 }
 
-char* rpc_client_call(const char* ip, int port, const char* json)
+int rpc_client_init(const char* ip, int port)
 {
-    int sockfd = conn_server(ip, port);
+    if (ip == NULL || ip[0] == '\0')
+    {
+        fprintf(stderr, "rpc_client_init: invalid ip\n");
+        return -1;
+    }
+    if (port <= 0 || port > 65535)
+    {
+        fprintf(stderr, "rpc_client_init: invalid port %d\n", port);
+        return -1;
+    }
+
+    strncpy(g_rpc_server_ip, ip, sizeof(g_rpc_server_ip) - 1);
+    g_rpc_server_ip[sizeof(g_rpc_server_ip) - 1] = '\0';
+    g_rpc_server_port = port;
+    g_rpc_client_inited = true;
+    return 0;
+}
+
+char* rpc_client_call(const char* json)
+{
+    if (!g_rpc_client_inited)
+    {
+        fprintf(stderr, "rpc_client_call: client not initialized, call rpc_client_init() first\n");
+        return NULL;
+    }
+
+    int sockfd = conn_server(g_rpc_server_ip, g_rpc_server_port);
     if (sockfd < 0)
     {
         perror("conn_server");

@@ -18,7 +18,7 @@ int add(int a, int b){
     }";
 
     // 发送数据
-    char* json = rpc_client_call("127.0.0.1", 8888, rpc_json);
+    char* json = rpc_client_call(rpc_json);
     if (json != NULL){
         printf("recv %s\n", json);
         free(json);
@@ -29,5 +29,8 @@ int add(int a, int b){
 
 int main(int argc, char *argv[])
 {
+    if (rpc_client_init("127.0.0.1", 8888) != 0) {
+        return -1;
+    }
     add(1,2);
 }

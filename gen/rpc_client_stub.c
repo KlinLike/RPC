@@ -65,8 +65,52 @@ static cJSON* rpc_parse_response(const char* json)
     return cJSON_Parse(json);
 }
 
-// Return a + b
-int32_t add(int32_t a, int32_t b)
+// Return a simple string for connectivity test
+char* ping()
+{
+    cJSON* params = cJSON_CreateObject();
+    if (params == NULL) {
+        return NULL;
+    }
+    char* req = rpc_build_request("ping", params);
+    if (req == NULL) {
+        cJSON_Delete(params);
+        return NULL;
+    }
+    char* resp_json = rpc_client_call(req);
+    free(req);
+    if (resp_json == NULL) {
+        return NULL;
+    }
+
+    cJSON* root = rpc_parse_response(resp_json);
+    free(resp_json);
+    if (root == NULL) {
+        return NULL;
+    }
+
+    cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
+    if (err != NULL) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
+    if (result == NULL) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+    if (!cJSON_IsString(result) || result->valuestring == NULL) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+    char* v = rpc_strdup(result->valuestring);
+    cJSON_Delete(root);
+    return v;
+}
+
+// Return a + b (i32)
+int32_t add_i32(int32_t a, int32_t b)
 {
     cJSON* params = cJSON_CreateObject();
     if (params == NULL) {
@@ -74,7 +118,7 @@ int32_t add(int32_t a, int32_t b)
     }
     cJSON_AddNumberToObject(params, "a", (double)a);
     cJSON_AddNumberToObject(params, "b", (double)b);
-    char* req = rpc_build_request("add", params);
+    char* req = rpc_build_request("add_i32", params);
     if (req == NULL) {
         cJSON_Delete(params);
         return 0;
@@ -111,148 +155,8 @@ int32_t add(int32_t a, int32_t b)
     return v;
 }
 
-// Return a - b
-int32_t sub(int32_t a, int32_t b)
-{
-    cJSON* params = cJSON_CreateObject();
-    if (params == NULL) {
-        return 0;
-    }
-    cJSON_AddNumberToObject(params, "a", (double)a);
-    cJSON_AddNumberToObject(params, "b", (double)b);
-    char* req = rpc_build_request("sub", params);
-    if (req == NULL) {
-        cJSON_Delete(params);
-        return 0;
-    }
-    char* resp_json = rpc_client_call(req);
-    free(req);
-    if (resp_json == NULL) {
-        return 0;
-    }
-
-    cJSON* root = rpc_parse_response(resp_json);
-    free(resp_json);
-    if (root == NULL) {
-        return 0;
-    }
-
-    cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
-    if (err != NULL) {
-        cJSON_Delete(root);
-        return 0;
-    }
-
-    cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
-    if (result == NULL) {
-        cJSON_Delete(root);
-        return 0;
-    }
-    if (!cJSON_IsNumber(result)) {
-        cJSON_Delete(root);
-        return 0;
-    }
-    int32_t v = (int32_t)result->valuedouble;
-    cJSON_Delete(root);
-    return v;
-}
-
-// Return a + b + c
-int32_t add_3(int32_t a, int32_t b, int32_t c)
-{
-    cJSON* params = cJSON_CreateObject();
-    if (params == NULL) {
-        return 0;
-    }
-    cJSON_AddNumberToObject(params, "a", (double)a);
-    cJSON_AddNumberToObject(params, "b", (double)b);
-    cJSON_AddNumberToObject(params, "c", (double)c);
-    char* req = rpc_build_request("add_3", params);
-    if (req == NULL) {
-        cJSON_Delete(params);
-        return 0;
-    }
-    char* resp_json = rpc_client_call(req);
-    free(req);
-    if (resp_json == NULL) {
-        return 0;
-    }
-
-    cJSON* root = rpc_parse_response(resp_json);
-    free(resp_json);
-    if (root == NULL) {
-        return 0;
-    }
-
-    cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
-    if (err != NULL) {
-        cJSON_Delete(root);
-        return 0;
-    }
-
-    cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
-    if (result == NULL) {
-        cJSON_Delete(root);
-        return 0;
-    }
-    if (!cJSON_IsNumber(result)) {
-        cJSON_Delete(root);
-        return 0;
-    }
-    int32_t v = (int32_t)result->valuedouble;
-    cJSON_Delete(root);
-    return v;
-}
-
-// Return a - b - c
-int32_t sub_3(int32_t a, int32_t b, int32_t c)
-{
-    cJSON* params = cJSON_CreateObject();
-    if (params == NULL) {
-        return 0;
-    }
-    cJSON_AddNumberToObject(params, "a", (double)a);
-    cJSON_AddNumberToObject(params, "b", (double)b);
-    cJSON_AddNumberToObject(params, "c", (double)c);
-    char* req = rpc_build_request("sub_3", params);
-    if (req == NULL) {
-        cJSON_Delete(params);
-        return 0;
-    }
-    char* resp_json = rpc_client_call(req);
-    free(req);
-    if (resp_json == NULL) {
-        return 0;
-    }
-
-    cJSON* root = rpc_parse_response(resp_json);
-    free(resp_json);
-    if (root == NULL) {
-        return 0;
-    }
-
-    cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
-    if (err != NULL) {
-        cJSON_Delete(root);
-        return 0;
-    }
-
-    cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
-    if (result == NULL) {
-        cJSON_Delete(root);
-        return 0;
-    }
-    if (!cJSON_IsNumber(result)) {
-        cJSON_Delete(root);
-        return 0;
-    }
-    int32_t v = (int32_t)result->valuedouble;
-    cJSON_Delete(root);
-    return v;
-}
-
-// Return a + b (double)
-double add_double(double a, double b)
+// Return a * b (double)
+double mul_double(double a, double b)
 {
     cJSON* params = cJSON_CreateObject();
     if (params == NULL) {
@@ -260,7 +164,7 @@ double add_double(double a, double b)
     }
     cJSON_AddNumberToObject(params, "a", (double)a);
     cJSON_AddNumberToObject(params, "b", (double)b);
-    char* req = rpc_build_request("add_double", params);
+    char* req = rpc_build_request("mul_double", params);
     if (req == NULL) {
         cJSON_Delete(params);
         return 0.0;
@@ -297,48 +201,139 @@ double add_double(double a, double b)
     return v;
 }
 
-// Return a - b (double)
-double sub_double(double a, double b)
+// Return true if n is even
+bool is_even(int32_t n)
 {
     cJSON* params = cJSON_CreateObject();
     if (params == NULL) {
-        return 0.0;
+        return 0;
     }
-    cJSON_AddNumberToObject(params, "a", (double)a);
-    cJSON_AddNumberToObject(params, "b", (double)b);
-    char* req = rpc_build_request("sub_double", params);
+    cJSON_AddNumberToObject(params, "n", (double)n);
+    char* req = rpc_build_request("is_even", params);
     if (req == NULL) {
         cJSON_Delete(params);
-        return 0.0;
+        return 0;
     }
     char* resp_json = rpc_client_call(req);
     free(req);
     if (resp_json == NULL) {
-        return 0.0;
+        return 0;
     }
 
     cJSON* root = rpc_parse_response(resp_json);
     free(resp_json);
     if (root == NULL) {
-        return 0.0;
+        return 0;
     }
 
     cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
     if (err != NULL) {
         cJSON_Delete(root);
-        return 0.0;
+        return 0;
     }
 
     cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
     if (result == NULL) {
         cJSON_Delete(root);
-        return 0.0;
+        return 0;
+    }
+    if (!cJSON_IsBool(result)) {
+        cJSON_Delete(root);
+        return 0;
+    }
+    bool v = cJSON_IsTrue(result);
+    cJSON_Delete(root);
+    return v;
+}
+
+// Return length of s (bytes)
+int32_t strlen_s(const char* s)
+{
+    cJSON* params = cJSON_CreateObject();
+    if (params == NULL) {
+        return 0;
+    }
+    cJSON_AddStringToObject(params, "s", s);
+    char* req = rpc_build_request("strlen_s", params);
+    if (req == NULL) {
+        cJSON_Delete(params);
+        return 0;
+    }
+    char* resp_json = rpc_client_call(req);
+    free(req);
+    if (resp_json == NULL) {
+        return 0;
+    }
+
+    cJSON* root = rpc_parse_response(resp_json);
+    free(resp_json);
+    if (root == NULL) {
+        return 0;
+    }
+
+    cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
+    if (err != NULL) {
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
+    if (result == NULL) {
+        cJSON_Delete(root);
+        return 0;
     }
     if (!cJSON_IsNumber(result)) {
         cJSON_Delete(root);
-        return 0.0;
+        return 0;
     }
-    double v = (double)result->valuedouble;
+    int32_t v = (int32_t)result->valuedouble;
+    cJSON_Delete(root);
+    return v;
+}
+
+// Return a formatted string mixing i32/double/bool
+char* mix3(int32_t a, double b, bool ok)
+{
+    cJSON* params = cJSON_CreateObject();
+    if (params == NULL) {
+        return NULL;
+    }
+    cJSON_AddNumberToObject(params, "a", (double)a);
+    cJSON_AddNumberToObject(params, "b", (double)b);
+    cJSON_AddBoolToObject(params, "ok", ok);
+    char* req = rpc_build_request("mix3", params);
+    if (req == NULL) {
+        cJSON_Delete(params);
+        return NULL;
+    }
+    char* resp_json = rpc_client_call(req);
+    free(req);
+    if (resp_json == NULL) {
+        return NULL;
+    }
+
+    cJSON* root = rpc_parse_response(resp_json);
+    free(resp_json);
+    if (root == NULL) {
+        return NULL;
+    }
+
+    cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
+    if (err != NULL) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
+    if (result == NULL) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+    if (!cJSON_IsString(result) || result->valuestring == NULL) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+    char* v = rpc_strdup(result->valuestring);
     cJSON_Delete(root);
     return v;
 }

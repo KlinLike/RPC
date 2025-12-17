@@ -9,8 +9,19 @@
 
   "functions": [
     {
-      "method": "add",
-      "description": "Return a + b",
+      "method": "ping",
+      "description": "Return a simple string for connectivity test",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": { "type": "string" }
+    },
+    {
+      "method": "add_i32",
+      "description": "Return a + b (i32)",
       "params": {
         "type": "object",
         "properties": {
@@ -23,52 +34,8 @@
       "result": { "type": "i32" }
     },
     {
-      "method": "sub",
-      "description": "Return a - b",
-      "params": {
-        "type": "object",
-        "properties": {
-          "a": { "type": "i32" },
-          "b": { "type": "i32" }
-        },
-        "required": ["a", "b"],
-        "additionalProperties": false
-      },
-      "result": { "type": "i32" }
-    },
-    {
-      "method": "add_3",
-      "description": "Return a + b + c",
-      "params": {
-        "type": "object",
-        "properties": {
-          "a": { "type": "i32" },
-          "b": { "type": "i32" },
-          "c": { "type": "i32" }
-        },
-        "required": ["a", "b", "c"],
-        "additionalProperties": false
-      },
-      "result": { "type": "i32" }
-    },
-    {
-      "method": "sub_3",
-      "description": "Return a - b - c",
-      "params": {
-        "type": "object",
-        "properties": {
-          "a": { "type": "i32" },
-          "b": { "type": "i32" },
-          "c": { "type": "i32" }
-        },
-        "required": ["a", "b", "c"],
-        "additionalProperties": false
-      },
-      "result": { "type": "i32" }
-    },
-    {
-      "method": "add_double",
-      "description": "Return a + b (double)",
+      "method": "mul_double",
+      "description": "Return a * b (double)",
       "params": {
         "type": "object",
         "properties": {
@@ -81,18 +48,45 @@
       "result": { "type": "double" }
     },
     {
-      "method": "sub_double",
-      "description": "Return a - b (double)",
+      "method": "is_even",
+      "description": "Return true if n is even",
       "params": {
         "type": "object",
         "properties": {
-          "a": { "type": "double" },
-          "b": { "type": "double" }
+          "n": { "type": "i32" }
         },
-        "required": ["a", "b"],
+        "required": ["n"],
         "additionalProperties": false
       },
-      "result": { "type": "double" }
+      "result": { "type": "bool" }
+    },
+    {
+      "method": "strlen_s",
+      "description": "Return length of s (bytes)",
+      "params": {
+        "type": "object",
+        "properties": {
+          "s": { "type": "string" }
+        },
+        "required": ["s"],
+        "additionalProperties": false
+      },
+      "result": { "type": "i32" }
+    },
+    {
+      "method": "mix3",
+      "description": "Return a formatted string mixing i32/double/bool",
+      "params": {
+        "type": "object",
+        "properties": {
+          "a": { "type": "i32" },
+          "b": { "type": "double" },
+          "ok": { "type": "bool" }
+        },
+        "required": ["a", "b", "ok"],
+        "additionalProperties": false
+      },
+      "result": { "type": "string" }
     }
   ],
 

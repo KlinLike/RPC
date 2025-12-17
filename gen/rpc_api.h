@@ -8,20 +8,20 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Return a + b
-int32_t add(int32_t a, int32_t b);
+// Return a simple string for connectivity test
+char* ping();
 
-// Return a - b
-int32_t sub(int32_t a, int32_t b);
+// Return a + b (i32)
+int32_t add_i32(int32_t a, int32_t b);
 
-// Return a + b + c
-int32_t add_3(int32_t a, int32_t b, int32_t c);
+// Return a * b (double)
+double mul_double(double a, double b);
 
-// Return a - b - c
-int32_t sub_3(int32_t a, int32_t b, int32_t c);
+// Return true if n is even
+bool is_even(int32_t n);
 
-// Return a + b (double)
-double add_double(double a, double b);
+// Return length of s (bytes)
+int32_t strlen_s(const char* s);
 
-// Return a - b (double)
-double sub_double(double a, double b);
+// Return a formatted string mixing i32/double/bool
+char* mix3(int32_t a, double b, bool ok);

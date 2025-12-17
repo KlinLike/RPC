@@ -62,6 +62,7 @@ def _emit_preamble(lines: List[str]) -> None:
             "",
             '#include <stdio.h>',
             '#include <stdlib.h>',
+            '#include <string.h>',
             '#include <stdint.h>',
             '#include <stdbool.h>',
             "",
@@ -70,6 +71,20 @@ def _emit_preamble(lines: List[str]) -> None:
             '#include "rpc_api.h"',
             "",
             "static uint32_t g_rpc_request_id = 1;",
+            "",
+            "static char* rpc_strdup(const char* s)",
+            "{",
+            "    if (s == NULL) {",
+            "        return NULL;",
+            "    }",
+            "    size_t n = strlen(s);",
+            "    char* out = (char*)malloc(n + 1);",
+            "    if (out == NULL) {",
+            "        return NULL;",
+            "    }",
+            "    memcpy(out, s, n + 1);",
+            "    return out;",
+            "}",
             "",
             "// 构造 JSON-RPC 2.0 请求字符串：{jsonrpc, method, params, id}。",
             "// 返回堆上分配的字符串，调用者需要 free()。",
@@ -127,6 +142,8 @@ def _emit_result_parse(lines: List[str], ret_c: str, idl_ret_type: str) -> None:
     # Default return on error
     if ret_c == "double":
         default_ret = "0.0"
+    elif ret_c == "char*":
+        default_ret = "NULL"
     else:
         default_ret = "0"
 
@@ -192,6 +209,18 @@ def _emit_result_parse(lines: List[str], ret_c: str, idl_ret_type: str) -> None:
                 "    return v;",
             ]
         )
+    elif idl_ret_type == "string":
+        lines.extend(
+            [
+                "    if (!cJSON_IsString(result) || result->valuestring == NULL) {",
+                "        cJSON_Delete(root);",
+                f"        return {default_ret};",
+                "    }",
+                "    char* v = rpc_strdup(result->valuestring);",
+                "    cJSON_Delete(root);",
+                "    return v;",
+            ]
+        )
     else:
         raise ValueError(f"Unsupported return type for now: {idl_ret_type}")
 
@@ -223,7 +252,10 @@ def generate_rpc_client_stub() -> None:
             raise ValueError(f"functions[].result.type is required (method {method})")
 
         idl_ret_type = str(result["type"])
-        ret_c = _c_type_from_idl_type(idl, idl_ret_type)
+        if idl_ret_type == "string":
+            ret_c = "char*"
+        else:
+            ret_c = _c_type_from_idl_type(idl, idl_ret_type)
 
         params = _extract_params(fn)
         sig_parts: List[str] = []
@@ -234,7 +266,12 @@ def generate_rpc_client_stub() -> None:
         lines.append("{")
         lines.append("    cJSON* params = cJSON_CreateObject();")
         lines.append("    if (params == NULL) {")
-        lines.append("        return 0;") if ret_c != "double" else lines.append("        return 0.0;")
+        if ret_c == "double":
+            lines.append("        return 0.0;")
+        elif ret_c == "char*":
+            lines.append("        return NULL;")
+        else:
+            lines.append("        return 0;")
         lines.append("    }")
 
         for (pname, ptype) in params:
@@ -243,7 +280,12 @@ def generate_rpc_client_stub() -> None:
         lines.append(f"    char* req = rpc_build_request(\"{method}\", params);")
         lines.append("    if (req == NULL) {")
         lines.append("        cJSON_Delete(params);")
-        lines.append("        return 0;") if ret_c != "double" else lines.append("        return 0.0;")
+        if ret_c == "double":
+            lines.append("        return 0.0;")
+        elif ret_c == "char*":
+            lines.append("        return NULL;")
+        else:
+            lines.append("        return 0;")
         lines.append("    }")
 
         lines.append("    char* resp_json = rpc_client_call(req);")

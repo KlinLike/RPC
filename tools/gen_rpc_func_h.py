@@ -92,7 +92,11 @@ def generate_rpc_func_h() -> None:
         if not isinstance(result, dict) or "type" not in result:
             raise ValueError(f"functions[].result.type is required (method {method})")
 
-        ret_c = _c_type_from_idl_type(idl, str(result["type"]))
+        idl_ret_type = str(result["type"])
+        if idl_ret_type == "string":
+            ret_c = "char*"
+        else:
+            ret_c = _c_type_from_idl_type(idl, idl_ret_type)
         params = _extract_params(fn)
         param_parts: List[str] = []
         for (pname, ptype) in params:

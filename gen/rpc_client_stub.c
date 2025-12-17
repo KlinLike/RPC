@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -13,6 +14,20 @@
 #include "rpc_api.h"
 
 static uint32_t g_rpc_request_id = 1;
+
+static char* rpc_strdup(const char* s)
+{
+    if (s == NULL) {
+        return NULL;
+    }
+    size_t n = strlen(s);
+    char* out = (char*)malloc(n + 1);
+    if (out == NULL) {
+        return NULL;
+    }
+    memcpy(out, s, n + 1);
+    return out;
+}
 
 // 构造 JSON-RPC 2.0 请求字符串：{jsonrpc, method, params, id}。
 // 返回堆上分配的字符串，调用者需要 free()。

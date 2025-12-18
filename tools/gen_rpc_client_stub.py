@@ -63,6 +63,7 @@ def _emit_preamble(lines: List[str]) -> None:
             '#include <stdio.h>',
             '#include <stdlib.h>',
             '#include <string.h>',
+            '#include <inttypes.h>',
             '#include <stdint.h>',
             '#include <stdbool.h>',
             "",
@@ -127,9 +128,19 @@ def _emit_preamble(lines: List[str]) -> None:
 
 
 def _emit_param_add(lines: List[str], pname: str, idl_type: str) -> None:
-    if idl_type in ("i32", "i64", "double"):
+    if idl_type in ("i32", "double"):
         # cJSON stores numbers as double.
         lines.append(f"    cJSON_AddNumberToObject(params, \"{pname}\", (double){pname});")
+    elif idl_type == "i64":
+        lines.extend(
+            [
+                "    {",
+                f"        char buf_{pname}[32];",
+                f"        snprintf(buf_{pname}, sizeof(buf_{pname}), \"%\" PRId64, (int64_t){pname});",
+                f"        cJSON_AddStringToObject(params, \"{pname}\", buf_{pname});",
+                "    }",
+            ]
+        )
     elif idl_type == "bool":
         lines.append(f"    cJSON_AddBoolToObject(params, \"{pname}\", {pname});")
     elif idl_type == "string":
@@ -174,17 +185,41 @@ def _emit_result_parse(lines: List[str], ret_c: str, idl_ret_type: str) -> None:
     )
 
     if idl_ret_type in ("i32", "i64"):
-        lines.extend(
-            [
-                "    if (!cJSON_IsNumber(result)) {",
-                "        cJSON_Delete(root);",
-                f"        return {default_ret};",
-                "    }",
-                f"    {ret_c} v = ({ret_c})result->valuedouble;",
-                "    cJSON_Delete(root);",
-                "    return v;",
-            ]
-        )
+        if idl_ret_type == "i64":
+            lines.extend(
+                [
+                    "    if (cJSON_IsString(result) && result->valuestring != NULL) {",
+                    "        char* endptr = NULL;",
+                    "        long long tmp = strtoll(result->valuestring, &endptr, 10);",
+                    "        if (endptr == result->valuestring || *endptr != '\\0') {",
+                    "            cJSON_Delete(root);",
+                    f"            return {default_ret};",
+                    "        }",
+                    f"        {ret_c} v = ({ret_c})tmp;",
+                    "        cJSON_Delete(root);",
+                    "        return v;",
+                    "    }",
+                    "    if (cJSON_IsNumber(result)) {",
+                    f"        {ret_c} v = ({ret_c})result->valuedouble;",
+                    "        cJSON_Delete(root);",
+                    "        return v;",
+                    "    }",
+                    "    cJSON_Delete(root);",
+                    f"    return {default_ret};",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "    if (!cJSON_IsNumber(result)) {",
+                    "        cJSON_Delete(root);",
+                    f"        return {default_ret};",
+                    "    }",
+                    f"    {ret_c} v = ({ret_c})result->valuedouble;",
+                    "    cJSON_Delete(root);",
+                    "    return v;",
+                ]
+            )
     elif idl_ret_type == "double":
         lines.extend(
             [

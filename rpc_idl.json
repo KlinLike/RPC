@@ -20,6 +20,19 @@
       "result": { "type": "string" }
     },
     {
+      "method": "echo_i64",
+      "description": "Echo back x (i64)",
+      "params": {
+        "type": "object",
+        "properties": {
+          "x": { "type": "i64" }
+        },
+        "required": ["x"],
+        "additionalProperties": false
+      },
+      "result": { "type": "i64" }
+    },
+    {
       "method": "add_i32",
       "description": "Return a + b (i32)",
       "params": {

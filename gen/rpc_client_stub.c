@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -107,6 +108,66 @@ char* ping()
     char* v = rpc_strdup(result->valuestring);
     cJSON_Delete(root);
     return v;
+}
+
+// Echo back x (i64)
+int64_t echo_i64(int64_t x)
+{
+    cJSON* params = cJSON_CreateObject();
+    if (params == NULL) {
+        return 0;
+    }
+    {
+        char buf_x[32];
+        snprintf(buf_x, sizeof(buf_x), "%" PRId64, (int64_t)x);
+        cJSON_AddStringToObject(params, "x", buf_x);
+    }
+    char* req = rpc_build_request("echo_i64", params);
+    if (req == NULL) {
+        cJSON_Delete(params);
+        return 0;
+    }
+    char* resp_json = rpc_client_call(req);
+    free(req);
+    if (resp_json == NULL) {
+        return 0;
+    }
+
+    cJSON* root = rpc_parse_response(resp_json);
+    free(resp_json);
+    if (root == NULL) {
+        return 0;
+    }
+
+    cJSON* err = cJSON_GetObjectItemCaseSensitive(root, "error");
+    if (err != NULL) {
+        cJSON_Delete(root);
+        return 0;
+    }
+
+    cJSON* result = cJSON_GetObjectItemCaseSensitive(root, "result");
+    if (result == NULL) {
+        cJSON_Delete(root);
+        return 0;
+    }
+    if (cJSON_IsString(result) && result->valuestring != NULL) {
+        char* endptr = NULL;
+        long long tmp = strtoll(result->valuestring, &endptr, 10);
+        if (endptr == result->valuestring || *endptr != '\0') {
+            cJSON_Delete(root);
+            return 0;
+        }
+        int64_t v = (int64_t)tmp;
+        cJSON_Delete(root);
+        return v;
+    }
+    if (cJSON_IsNumber(result)) {
+        int64_t v = (int64_t)result->valuedouble;
+        cJSON_Delete(root);
+        return v;
+    }
+    cJSON_Delete(root);
+    return 0;
 }
 
 // Return a + b (i32)

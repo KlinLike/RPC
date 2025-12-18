@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 #include "rpc.h"
 #include "rpc_client.h"
@@ -20,4 +21,8 @@ int main(int argc, char *argv[])
         printf("ping result=%s\n", pong);
         free(pong);
     }
+
+    int64_t x = 9223372036854775807LL;
+    int64_t y = echo_i64(x);
+    printf("echo_i64 x=%" PRId64 " y=%" PRId64 "\n", x, y);
 }

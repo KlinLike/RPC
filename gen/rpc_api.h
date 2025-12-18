@@ -11,6 +11,9 @@
 // Return a simple string for connectivity test
 char* ping();
 
+// Echo back x (i64)
+int64_t echo_i64(int64_t x);
+
 // Return a + b (i32)
 int32_t add_i32(int32_t a, int32_t b);
 

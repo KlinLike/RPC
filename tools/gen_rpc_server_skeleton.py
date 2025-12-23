@@ -5,9 +5,9 @@ from typing import Dict, List
 
 ROOT = Path(__file__).resolve().parent.parent
 IN_PATH = ROOT / "rpc_idl.json"
-OUT_H = ROOT / "gen" / "rpc_server_skeleton.h"
-OUT_C = ROOT / "gen" / "rpc_server_skeleton.c"
-OUT_IMPL_H = ROOT / "gen" / "rpc_server_impl.h"
+OUT_H = ROOT / "server" / "gen" / "rpc_server_skeleton.h"
+OUT_C = ROOT / "server" / "gen" / "rpc_server_skeleton.c"
+OUT_IMPL_H = ROOT / "server" / "gen" / "rpc_server_impl.h"
 
 
 def load_idl(path: Path) -> Dict:

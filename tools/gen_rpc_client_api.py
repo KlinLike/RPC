@@ -9,8 +9,8 @@ def _repo_root() -> str:
 
 
 IDL_PATH = os.path.join(_repo_root(), "rpc_idl.json")
-OUT_H = os.path.join(_repo_root(), "gen", "rpc_client_api.h")
-OUT_C = os.path.join(_repo_root(), "gen", "rpc_client_api.c")
+OUT_H = os.path.join(_repo_root(), "client", "gen", "rpc_client_api.h")
+OUT_C = os.path.join(_repo_root(), "client", "gen", "rpc_client_api.c")
 
 
 def _load_idl(path: str) -> Dict[str, Any]:

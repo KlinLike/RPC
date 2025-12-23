@@ -5,7 +5,7 @@
 
 #include "rpc.h"
 #include "rpc_client.h"
-#include "rpc_api.h"
+#include "rpc_client_api.h"
 
 int main(int argc, char *argv[])
 {

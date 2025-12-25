@@ -14,6 +14,7 @@
 #include <limits.h>
 
 #include "rpc.h"
+#include "crc.h"
 #include "cJSON.h"
 #include "rpc_server_skeleton.h"
 #include "rpc_server_impl.h"
@@ -157,6 +158,14 @@ int main(int argc, char *argv[])
                 uint32_t body_len = ntohl(header->body_len);
                 uint32_t crc32 = ntohl(header->crc32);
 
+                if (body_len > MAX_BODY_LEN) {
+                    // Body长度超过限制，关闭连接
+                    fprintf(stderr, "body too large: %u\n", body_len);
+                    close(connfd);
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL, connfd, NULL);
+                    continue;
+                }
+
                 // 接收RPC Body
                 char* body = malloc(body_len + 1);
                 recv_bytes = 0;
@@ -185,6 +194,16 @@ int main(int argc, char *argv[])
                     continue;
                 }
                 body[body_len] = '\0';
+
+                // 校验CRC32（只对Body校验）
+                if (!rpc_crc32_verify(body, body_len, crc32)) {
+                    // CRC32校验失败，关闭连接
+                    fprintf(stderr, "crc32 mismatch: recv %u\n", crc32);
+                    close(connfd);
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL, connfd, NULL);
+                    free(body);
+                    continue;
+                }
                 printf("recv %d bytes: %s\n", body_len, body);
 
                 // 执行RPC处理函数
@@ -199,10 +218,11 @@ int main(int argc, char *argv[])
                 }
 
                 uint32_t resp_body_len = (uint32_t)strlen(resp_json);
+                uint32_t resp_crc32 = rpc_crc32(resp_json, resp_body_len);
                 rpc_header_t resp_header;
                 resp_header.version = htonl(version);
                 resp_header.body_len = htonl(resp_body_len);
-                resp_header.crc32 = htonl(0);
+                resp_header.crc32 = htonl(resp_crc32);
 
                 ssize_t send_bytes = 0;
                 while (send_bytes < RPC_HEADER_LEN){

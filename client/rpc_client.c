@@ -12,6 +12,7 @@
 
 #include "rpc.h"
 #include "rpc_client.h"
+#include "crc.h"
 
 
 static char g_rpc_server_ip[64] = {0};
@@ -56,7 +57,7 @@ static char* send_recv_close(int fd, const char* json) {
     rpc_header_t header_send;
     header_send.version = 1;
     header_send.body_len = (uint32_t)json_len;
-    header_send.crc32 = 0; // TODO 计算CRC
+    header_send.crc32 = rpc_crc32(json, json_len); // 只对Body进行CRC32校验，简单够用
 
     char rpc_header[RPC_HEADER_LEN];
     // 如果是跨平台，不进行字节序的转换就会有问题
@@ -128,9 +129,6 @@ static char* send_recv_close(int fd, const char* json) {
     uint32_t body_len = ntohl(header_recv->body_len);
     uint32_t crc32 = ntohl(header_recv->crc32);
 
-    (void)version;
-    (void)crc32;
-
     // 接收RPC Body
     recv_bytes = 0;
     char* body = malloc(body_len + 1);
@@ -138,6 +136,7 @@ static char* send_recv_close(int fd, const char* json) {
         recv_bytes = recv(fd, body + recv_bytes, body_len - recv_bytes, 0);
         if (recv_bytes == 0) {
             fprintf(stderr, "recv header: connection closed\n");
+            free(body);
             return NULL;
         }
         if (recv_bytes == -1 && errno == EINTR) {
@@ -145,10 +144,19 @@ static char* send_recv_close(int fd, const char* json) {
         }
         if (recv_bytes < 0) {
             perror("recv header");
+            free(body);
             return NULL;
         }
     }
     body[body_len] = '\0';
+
+    // 校验响应的CRC32（只对Body校验）
+    if (!rpc_crc32_verify(body, body_len, crc32)) {
+        fprintf(stderr, "resp crc32 mismatch: recv %u\n", crc32);
+        free(body);
+        close(fd);
+        return NULL;
+    }
 
     close(fd);
     return body;

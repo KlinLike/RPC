@@ -9,3 +9,5 @@ build/
 *.tmp
 *.swp
 .DS_Store
+
+TODO.md

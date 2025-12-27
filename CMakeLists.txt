@@ -15,6 +15,7 @@ add_executable(client
     client/rpc_client.c
     third_party/cJSON.c
     client/gen/rpc_client_api.c
+    client/rpc_async.c
     crc.c
 )
 

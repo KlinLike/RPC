@@ -1,3 +1,4 @@
+#include <time.h>
 #include "rpc_async.h"
 
 #include <arpa/inet.h>
@@ -19,18 +20,45 @@
 #include "crc.h"
 #include "third_party/uthash.h"
 
+
+// ------------------------ 异步实现 Ver 2 ------------------------
+
+// 生成下一个唯一的异步请求 ID（线程安全）
+uint32_t rpc_async_next_id(void) {
+    return atomic_fetch_add(&g_req_id, 1);
+}
+
+// 同步（阻塞）调用封装：内部仍走异步管线，但在本线程阻塞等待结果。
+// json: 请求 JSON（需包含与 id 对应的 "id" 字段）
+// id: 调用方指定的请求 ID（必须非 0）
+// body_out/body_len_out: 若非 NULL，将拷贝响应 body 返回，调用方负责 free(*body_out)
+// status_out: 若非 NULL，返回最终状态
+// 返回 0 表示已收齐；<0 表示未发送或等待失败
+int rpc_async_call_blocking(const char* json, uint32_t id, char** body_out, size_t* body_len_out, rpc_async_status_t* status_out){
+    // 1. 初始化 future
+    rpc_future_t future = {0};
+    pthread_mutex_init(&future.mutex, NULL);
+    pthread_cond_init(&future.cond, NULL);
+
+}
+
+// ------------------------ 异步实现 Ver 1 ------------------------
+
 // 前向声明（避免顺序导致的隐式声明）
 static int rpc_epoll_add(int fd);
 static void rpc_epoll_del(int fd);
 static int rpc_recv_all(int fd, void* buf, size_t len);
 static int rpc_start_timeout_thread(void);
 static void rpc_stop_timeout_thread(void);
-static void rpc_emit_event(uint32_t id,
-                           rpc_async_status_t status,
-                           const char* body_in,
-                           size_t body_len,
-                           rpc_async_cb cb,
-                           void* user_data);
+static void* rpc_timeout_thread_fn(void* arg);
+static void* rpc_recv_thread_fn(void* arg);
+static void rpc_blocking_cb(uint32_t id,
+                            rpc_async_status_t status,
+                            const char* body,
+                            size_t body_len,
+                            void* user_data);
+static void rpc_blocking_ctx_init(rpc_blocking_ctx_t* ctx);
+static void rpc_blocking_ctx_destroy(rpc_blocking_ctx_t* ctx);
 
 // --------------- 连接池（简单版，占位实现） ---------------
 
@@ -188,6 +216,7 @@ static rpc_pending_t* g_pending = NULL;
 static pthread_mutex_t g_pending_mu = PTHREAD_MUTEX_INITIALIZER; // uthash不线程安全
 static uint32_t g_next_id = 1;
 
+// TODO 删除这个函数
 static uint32_t rpc_next_id(void) {
     // 简单递增，不做溢出处理（实践中可跳过0）
     return __sync_fetch_and_add(&g_next_id, 1);
@@ -279,6 +308,16 @@ typedef struct {
     rpc_async_cb cb;
     void* user_data;
 } rpc_resp_event_t;
+
+// 阻塞等待上下文
+typedef struct {
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    bool done;
+    rpc_async_status_t status;
+    char* body;
+    size_t body_len;
+} rpc_blocking_ctx_t;
 
 typedef struct {
     rpc_resp_event_t* buf;  // 事件数组
@@ -699,8 +738,8 @@ static int rpc_recv_all(int fd, void* buf, size_t len) {
     return 0;
 }
 
-// 异步请求占位实现：注册 pending，发送头体，记录 fd，返回 id
-int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t* id_out)
+// 异步请求: 注册 pending，发送RPC，记录 fd，返回 0/-1
+int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t id)
 {
     if (!json || !cb) {
         return -1;
@@ -710,8 +749,10 @@ int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t*
         return -1;
     }
 
-    // 生成请求ID并注册pending
-    uint32_t id = rpc_next_id();
+    // 使用调用方提供的请求ID并注册pending
+    if (id == 0) {
+        return -1;
+    }
     struct timeval tv;
     gettimeofday(&tv, NULL);
     long long now_ms = (long long)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
@@ -765,9 +806,6 @@ int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t*
         return -1;
     }
 
-    if (id_out) {
-        *id_out = id;
-    }
     return 0;
 }
 

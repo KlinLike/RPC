@@ -121,6 +121,15 @@ int main(int argc, char *argv[])
                     return -1;
                 }
 
+                // 先检查异常/半关闭事件
+                uint32_t evts = events[i].events;
+                if (evts & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) {
+                    printf("epoll event error/hup on fd %d, close\n", connfd);
+                    close(connfd);
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL, connfd, NULL);
+                    continue;
+                }
+
                 bool is_error = false;
 
                 // 接收RPC Header
@@ -134,7 +143,7 @@ int main(int argc, char *argv[])
                     }
                     if (n == 0){
                         // 对端关闭连接
-                        perror("recv header: connection closed");
+                        printf("recv header: connection closed\n");
                         is_error = true;
                         break;
                     }
@@ -176,7 +185,7 @@ int main(int argc, char *argv[])
                     }
                     if (n == 0){
                         // 对端关闭连接
-                        printf("recv body: connection closed");
+                        printf("recv body: connection closed\n");
                         is_error = true;
                         break;
                     }

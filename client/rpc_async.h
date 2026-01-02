@@ -34,5 +34,7 @@ void rpc_async_shutdown(void);
 // json: 要发送的请求体（JSON 文本）
 // cb: 回调函数指针，请求结束（成功/超时/错误）时在回调线程里调用
 // user_data: 用户自定义指针，随请求存储，回调时原样传回
-// id_out: 输出请求 ID（可为 NULL，表示不关心 ID）
-int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t* id_out);
+// id: 调用方指定的请求 ID（由调用方写入 JSON 的 "id" 字段）
+int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t id);
+
+

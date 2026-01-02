@@ -2,39 +2,83 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <pthread.h>
 
-// 异步请求状态
+// ------------------------ 异步实现 Ver 2 ------------------------
+/**
+ * @brief RPC 错误码
+ */
 typedef enum {
-    RPC_ASYNC_OK = 0,
-    RPC_ASYNC_TIMEOUT = 1,
-    RPC_ASYNC_CONN_ERR = 2,
-    RPC_ASYNC_SEND_ERR = 3,
-    RPC_ASYNC_RECV_ERR = 4,
-    RPC_ASYNC_CRC_ERR = 5,
-} rpc_async_status_t;
+    RPC_OK = 0,
+    RPC_TIMEOUT = 1,
+    RPC_CONN_ERR = 2,
+    RPC_SEND_ERR = 3,
+    RPC_RECV_ERR = 4,
+    RPC_CRC_ERR = 5,
+    RPC_OTHER_ERR = 6,
+} rpc_error_code;
 
-// 回调签名：在回调线程中调用
+/**
+ * @brief 异步请求的 Future 对象，用于同步等待异步结果
+ */
+typedef struct {
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    bool is_ready;
+    char* result;           // 响应 body，调用者负责 free
+    size_t result_len;
+    rpc_error_code error_code;
+} rpc_future_t;
+
+/**
+ * @brief 生成下一个唯一的异步请求 ID（线程安全）
+ */
+uint32_t rpc_async_next_id(void);
+
+/**
+ * @brief 同步（阻塞）调用封装：内部走异步管线，但在当前线程阻塞等待结果
+ * 
+ * @param json 请求 JSON 字符串
+ * @param id 请求 ID
+ * @param body_out 输出响应 body，调用方负责 free(*body_out)
+ * @param body_len_out 输出响应 body 长度
+ * @param status_out 输出状态码
+ * @return int 0 成功，-1 失败
+ */
+int rpc_call_async_blocking(const char* json,
+                            uint32_t id,
+                            char** body_out,
+                            size_t* body_len_out,
+                            rpc_error_code* status_out);
+
+
+
+
+// ------------------------ 异步实现 Ver 1 ------------------------
+
+/**
+ * @brief 回调函数签名
+ */
 typedef void (*rpc_async_cb)(uint32_t id,
-                             rpc_async_status_t status,
+                             rpc_error_code status,
                              const char* body,
                              size_t body_len,
                              void* user_data);
 
-// 初始化异步客户端子系统
-// ip/port: 目标服务地址
-// max_conn: 连接池大小（建议 2~4）
-// queue_size: 回调队列容量（有界队列）
-// timeout_ms: 请求超时（毫秒）
+/**
+ * @brief 初始化异步客户端子系统
+ */
 int rpc_async_init(const char* ip, int port, int max_conn, int queue_size, int timeout_ms);
 
-// 停止异步子系统，释放资源
+/**
+ * @brief 停止异步子系统，释放资源
+ */
 void rpc_async_shutdown(void);
 
-// 异步发起请求（JSON 文本），立即返回；0 表示已入队/开始发送，<0 表示未发送
-// json: 要发送的请求体（JSON 文本）
-// cb: 回调函数指针，请求结束（成功/超时/错误）时在回调线程里调用
-// user_data: 用户自定义指针，随请求存储，回调时原样传回
-// id: 调用方指定的请求 ID（由调用方写入 JSON 的 "id" 字段）
+/**
+ * @brief 异步发起请求
+ */
 int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t id);
 
 

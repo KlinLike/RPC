@@ -1,4 +1,5 @@
 #include <time.h>
+#include <stdatomic.h>
 #include "rpc_async.h"
 
 #include <arpa/inet.h>
@@ -20,26 +21,171 @@
 #include "crc.h"
 #include "third_party/uthash.h"
 
+// NOTE: fd可读后调用的会掉，需要找到fd对应的future然后唤醒
+// 内部回调：用于同步阻塞调用
+static void rpc_sync_blocking_cb(uint32_t id,
+                               rpc_error_code status,
+                               const char* body,
+                               size_t body_len,
+                               void* user_data) {
+    rpc_future_t* future = (rpc_future_t*)user_data;
+    pthread_mutex_lock(&future->mutex);
+    future->error_code = status;
+    if (body && body_len > 0) {
+        future->result = malloc(body_len + 1);
+        if (future->result) {
+            memcpy(future->result, body, body_len);
+            future->result[body_len] = '\0';
+            future->result_len = body_len;
+        }
+    }
+    future->is_ready = true;
+    pthread_cond_signal(&future->cond);
+    pthread_mutex_unlock(&future->mutex);
+}
+
 
 // ------------------------ 异步实现 Ver 2 ------------------------
+
+static atomic_uint g_req_id = 1;
 
 // 生成下一个唯一的异步请求 ID（线程安全）
 uint32_t rpc_async_next_id(void) {
     return atomic_fetch_add(&g_req_id, 1);
 }
 
-// 同步（阻塞）调用封装：内部仍走异步管线，但在本线程阻塞等待结果。
-// json: 请求 JSON（需包含与 id 对应的 "id" 字段）
-// id: 调用方指定的请求 ID（必须非 0）
-// body_out/body_len_out: 若非 NULL，将拷贝响应 body 返回，调用方负责 free(*body_out)
-// status_out: 若非 NULL，返回最终状态
-// 返回 0 表示已收齐；<0 表示未发送或等待失败
-int rpc_async_call_blocking(const char* json, uint32_t id, char** body_out, size_t* body_len_out, rpc_async_status_t* status_out){
-    // 1. 初始化 future
-    rpc_future_t future = {0};
+// NOTE: async_call会发生什么
+// 1. 从连接池中取出连接
+// 2. 注册pending
+// 3. 发送
+// 4. epoll_wait
+// 5. 可读后找到对应的future并唤醒
+// 异步请求: 注册 pending，发送RPC，记录 fd，返回 0/-1
+int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t id)
+{
+    if (!json || !cb) {
+        return -1;
+    }
+    size_t body_len = strlen(json);
+    if (body_len > MAX_BODY_LEN) {
+        return -1;
+    }
+
+    // 使用调用方提供的请求ID并注册pending
+    if (id == 0) {
+        return -1;
+    }
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    long long now_ms = (long long)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+    long long expire_ms = now_ms + g_timeout_ms;
+
+    if (!rpc_pending_add(id, -1, cb, user_data, expire_ms)) {
+        return -1;
+    }
+
+    int fd = rpc_pool_get_conn();
+    if (fd < 0) {
+        rpc_pending_t* p = rpc_pending_take(id);
+        if (p) free(p);
+        return -1;
+    }
+
+    // 组装并发送请求（同步发送，占位实现）
+    rpc_header_t header;
+    header.version = htonl(1);
+    header.body_len = htonl((uint32_t)body_len);
+    header.crc32 = htonl(rpc_crc32(json, body_len));
+
+    if (rpc_send_all(fd, &header, RPC_HEADER_LEN) != 0) {
+        rpc_pool_put_conn(fd, true);
+        rpc_pending_t* p = rpc_pending_take(id);
+        if (p) {
+            rpc_emit_event(id, RPC_SEND_ERR, NULL, 0, p->cb, p->user_data);
+            free(p);
+        }
+        return -1;
+    }
+
+    if (rpc_send_all(fd, json, body_len) != 0) {
+        rpc_pool_put_conn(fd, true);
+        rpc_pending_t* p = rpc_pending_take(id);
+        if (p) {
+            rpc_emit_event(id, RPC_SEND_ERR, NULL, 0, p->cb, p->user_data);
+            free(p);
+        }
+        return -1;
+    }
+
+    // 暂存fd到pending
+    if (rpc_pending_set_fd(id, fd) != 0) {
+        rpc_pool_put_conn(fd, true);
+        rpc_pending_t* p = rpc_pending_take(id);
+        if (p) {
+            rpc_emit_event(id, RPC_SEND_ERR, NULL, 0, p->cb, p->user_data);
+            free(p);
+        }
+        return -1;
+    }
+
+    return 0;
+}
+
+// 同步（阻塞）调用封装
+// NOTE: 返回值+status_out能提供最清晰的错误边界，能够区分：是否发起了请求 和 请求的结果是什么
+int rpc_call_async_blocking(const char* json,
+                            uint32_t id,
+                            char** body_out,
+                            size_t* body_len_out,
+                            rpc_error_code* status_out) {
+
+    if (!body_out || !body_len_out || !status_out) {
+        perror("rpc_call_async_blocking: body_out, body_len_out, or status_out is NULL");
+        return -1;
+    }
+    *status_out = RPC_OK;
+
+    // 初始化 future 结构体
+    rpc_future_t future;
     pthread_mutex_init(&future.mutex, NULL);
     pthread_cond_init(&future.cond, NULL);
+    future.is_ready = false;
+    future.result = NULL;
+    future.result_len = 0;
+    future.error_code = RPC_OK;
 
+    // 发起异步调用
+    if (rpc_async_call(json, rpc_sync_blocking_cb, &future, id) != 0) {
+        if (status_out) *status_out = RPC_OTHER_ERR;
+        pthread_mutex_destroy(&future.mutex);
+        pthread_cond_destroy(&future.cond);
+        return -1;
+    }
+
+    // 等待future完成
+    pthread_mutex_lock(&future.mutex);
+    while (!future.is_ready) {
+        pthread_cond_wait(&future.cond, &future.mutex);
+    }
+    pthread_mutex_unlock(&future.mutex);
+
+    // 复制结果
+    if (status_out) *status_out = future.error_code;
+    if (future.error_code == RPC_OK) {
+        // 所有权转移给调用者
+        *body_out = future.result;
+        future.result = NULL;
+        *body_len_out = future.result_len;
+    } else {
+        if (future.result) free(future.result);
+        perror("rpc_call_async_blocking: future return faile");
+    }
+
+    // 清理资源
+    pthread_mutex_destroy(&future.mutex);
+    pthread_cond_destroy(&future.cond);
+
+    return (future.error_code == RPC_OK) ? 0 : -1;
 }
 
 // ------------------------ 异步实现 Ver 1 ------------------------
@@ -52,13 +198,12 @@ static int rpc_start_timeout_thread(void);
 static void rpc_stop_timeout_thread(void);
 static void* rpc_timeout_thread_fn(void* arg);
 static void* rpc_recv_thread_fn(void* arg);
-static void rpc_blocking_cb(uint32_t id,
-                            rpc_async_status_t status,
-                            const char* body,
-                            size_t body_len,
-                            void* user_data);
-static void rpc_blocking_ctx_init(rpc_blocking_ctx_t* ctx);
-static void rpc_blocking_ctx_destroy(rpc_blocking_ctx_t* ctx);
+static void rpc_emit_event(uint32_t id,
+                           rpc_error_code status,
+                           const char* body_in,
+                           size_t body_len,
+                           rpc_async_cb cb,
+                           void* user_data);
 
 // --------------- 连接池（简单版，占位实现） ---------------
 
@@ -282,7 +427,7 @@ static rpc_pending_t* rpc_pending_take_by_fd(int fd) {
 
 // 移除指定 fd 的所有 pending（例如连接坏掉）
 // 移除某 fd 上的所有挂起请求并触发错误回调
-static void rpc_pending_remove_by_fd(int fd, rpc_async_status_t status) {
+static void rpc_pending_remove_by_fd(int fd, rpc_error_code status) {
     rpc_pending_t *p, *tmp;
     pthread_mutex_lock(&g_pending_mu);
     HASH_ITER(hh, g_pending, p, tmp) {
@@ -302,7 +447,7 @@ static void rpc_pending_remove_by_fd(int fd, rpc_async_status_t status) {
 
 typedef struct {
     uint32_t id;
-    rpc_async_status_t status;
+    rpc_error_code status;
     char* body;     // body由生产者malloc/copy，保存RPC Request Body，消费者调用毁掉后用rpc_resp_event_cleanup函数释放
     size_t body_len;
     rpc_async_cb cb;
@@ -314,7 +459,7 @@ typedef struct {
     pthread_mutex_t mu;
     pthread_cond_t cv;
     bool done;
-    rpc_async_status_t status;
+    rpc_error_code status;
     char* body;
     size_t body_len;
 } rpc_blocking_ctx_t;
@@ -395,7 +540,7 @@ static void rpc_pending_scan_timeout(void) {
 
     for (size_t i = 0; i < exp_count; ++i) {
         rpc_pending_t* e = expired[i];
-        rpc_emit_event(e->id, RPC_ASYNC_TIMEOUT, NULL, 0, e->cb, e->user_data);
+        rpc_emit_event(e->id, RPC_TIMEOUT, NULL, 0, e->cb, e->user_data);
         free(e);
     }
     free(expired);
@@ -544,7 +689,7 @@ static void rpc_stop_cb_thread(void) {
 // 带body拷贝的事件推送，body_in可为NULL；若len>0则拷贝
 // 生产者侧封装事件并推送回调队列（body 会被拷贝并在消费后释放）
 static void rpc_emit_event(uint32_t id,
-                           rpc_async_status_t status,
+                           rpc_error_code status,
                            const char* body_in,
                            size_t body_len,
                            rpc_async_cb cb,
@@ -575,7 +720,7 @@ static void rpc_emit_event(uint32_t id,
 static void rpc_handle_recv(int fd) {
     rpc_header_t hdr_net;
     if (rpc_recv_all(fd, &hdr_net, RPC_HEADER_LEN) != 0) {
-        rpc_pending_remove_by_fd(fd, RPC_ASYNC_RECV_ERR);
+        rpc_pending_remove_by_fd(fd, RPC_RECV_ERR);
         rpc_pool_put_conn(fd, true);
         return;
     }
@@ -584,26 +729,27 @@ static void rpc_handle_recv(int fd) {
     hdr.body_len = ntohl(hdr_net.body_len);
     hdr.crc32 = ntohl(hdr_net.crc32);
     if (hdr.body_len > MAX_BODY_LEN) {
-        rpc_pending_remove_by_fd(fd, RPC_ASYNC_RECV_ERR);
+        rpc_pending_remove_by_fd(fd, RPC_RECV_ERR);
         rpc_pool_put_conn(fd, true);
         return;
     }
     char* body = malloc(hdr.body_len + 1);
     if (!body) {
-        rpc_pending_remove_by_fd(fd, RPC_ASYNC_RECV_ERR);
+        rpc_pending_remove_by_fd(fd, RPC_RECV_ERR);
         rpc_pool_put_conn(fd, true);
         return;
     }
     if (rpc_recv_all(fd, body, hdr.body_len) != 0) {
         free(body);
-        rpc_pending_remove_by_fd(fd, RPC_ASYNC_RECV_ERR);
+        rpc_pending_remove_by_fd(fd, RPC_RECV_ERR);
         rpc_pool_put_conn(fd, true);
         return;
     }
     body[hdr.body_len] = '\0';
-    rpc_async_status_t status = RPC_ASYNC_OK;
+
+    rpc_error_code status = RPC_OK;
     if (!rpc_crc32_verify(body, hdr.body_len, hdr.crc32)) {
-        status = RPC_ASYNC_CRC_ERR;
+        status = RPC_CRC_ERR;
     }
     rpc_pending_t* p = rpc_pending_take_by_fd(fd);
     if (p) {
@@ -629,7 +775,7 @@ static void* rpc_recv_thread_fn(void* arg) {
             uint32_t ev = events[i].events;
             if (ev & (EPOLLERR | EPOLLRDHUP | EPOLLHUP)) {
                 // 连接异常，移除所有相关pending并关闭连接
-                rpc_pending_remove_by_fd(fd, RPC_ASYNC_RECV_ERR);
+                rpc_pending_remove_by_fd(fd, RPC_RECV_ERR);
                 rpc_pool_put_conn(fd, true);
                 continue;
             }
@@ -738,74 +884,4 @@ static int rpc_recv_all(int fd, void* buf, size_t len) {
     return 0;
 }
 
-// 异步请求: 注册 pending，发送RPC，记录 fd，返回 0/-1
-int rpc_async_call(const char* json, rpc_async_cb cb, void* user_data, uint32_t id)
-{
-    if (!json || !cb) {
-        return -1;
-    }
-    size_t body_len = strlen(json);
-    if (body_len > MAX_BODY_LEN) {
-        return -1;
-    }
-
-    // 使用调用方提供的请求ID并注册pending
-    if (id == 0) {
-        return -1;
-    }
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    long long now_ms = (long long)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
-    long long expire_ms = now_ms + g_timeout_ms;
-
-    if (!rpc_pending_add(id, -1, cb, user_data, expire_ms)) {
-        return -1;
-    }
-
-    int fd = rpc_pool_get_conn();
-    if (fd < 0) {
-        rpc_pending_t* p = rpc_pending_take(id);
-        if (p) free(p);
-        return -1;
-    }
-
-    // 组装并发送请求（同步发送，占位实现）
-    rpc_header_t header;
-    header.version = htonl(1);
-    header.body_len = htonl((uint32_t)body_len);
-    header.crc32 = htonl(rpc_crc32(json, body_len));
-
-    if (rpc_send_all(fd, &header, RPC_HEADER_LEN) != 0) {
-        rpc_pool_put_conn(fd, true);
-        rpc_pending_t* p = rpc_pending_take(id);
-        if (p) {
-            rpc_emit_event(id, RPC_ASYNC_SEND_ERR, NULL, 0, p->cb, p->user_data);
-            free(p);
-        }
-        return -1;
-    }
-
-    if (rpc_send_all(fd, json, body_len) != 0) {
-        rpc_pool_put_conn(fd, true);
-        rpc_pending_t* p = rpc_pending_take(id);
-        if (p) {
-            rpc_emit_event(id, RPC_ASYNC_SEND_ERR, NULL, 0, p->cb, p->user_data);
-            free(p);
-        }
-        return -1;
-    }
-
-    // 暂存fd到pending
-    if (rpc_pending_set_fd(id, fd) != 0) {
-        rpc_pool_put_conn(fd, true);
-        rpc_pending_t* p = rpc_pending_take(id);
-        if (p) {
-            rpc_emit_event(id, RPC_ASYNC_SEND_ERR, NULL, 0, p->cb, p->user_data);
-            free(p);
-        }
-        return -1;
-    }
-
-    return 0;
-}
 

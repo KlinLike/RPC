@@ -22,10 +22,10 @@ int32_t add_i32_manual(int32_t a, int32_t b) {
     int32_t ret_val = 0;
     char* resp_json = NULL;
     size_t resp_len = 0;
-    rpc_async_status_t status;
+    rpc_error_code status;
 
     // 3. 传输层调用 (阻塞等待)
-    if (rpc_async_call_blocking(req_json, id, &resp_json, &resp_len, &status) == 0) {
+    if (rpc_call_async_blocking(req_json, id, &resp_json, &resp_len, &status) == 0) {
         // 4. 协议解码
         uint32_t resp_id;
         cJSON *result = NULL, *error = NULL;

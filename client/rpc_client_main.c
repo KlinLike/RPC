@@ -11,6 +11,7 @@
 #include "rpc.h"
 #include "rpc_async.h"
 #include "rpc_client_api.h"
+#include "rpc_client_manual.h"
 
 
 typedef struct {
@@ -29,16 +30,16 @@ static pthread_mutex_t g_wait_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t g_wait_cv = PTHREAD_COND_INITIALIZER;
 static int g_pending = 0;
 
-static void on_resp(uint32_t id, rpc_async_status_t status, const char* body, size_t body_len, void* user_data) {
+static void on_resp(uint32_t id, rpc_error_code status, const char* body, size_t body_len, void* user_data) {
     req_ctx_t* ctx = (req_ctx_t*)user_data;
     const char* st = "OK";
     switch (status) {
-        case RPC_ASYNC_OK: st = "OK"; break;
-        case RPC_ASYNC_TIMEOUT: st = "TIMEOUT"; break;
-        case RPC_ASYNC_CONN_ERR: st = "CONN_ERR"; break;
-        case RPC_ASYNC_SEND_ERR: st = "SEND_ERR"; break;
-        case RPC_ASYNC_RECV_ERR: st = "RECV_ERR"; break;
-        case RPC_ASYNC_CRC_ERR: st = "CRC_ERR"; break;
+        case RPC_OK: st = "OK"; break;
+        case RPC_TIMEOUT: st = "TIMEOUT"; break;
+        case RPC_CONN_ERR: st = "CONN_ERR"; break;
+        case RPC_SEND_ERR: st = "SEND_ERR"; break;
+        case RPC_RECV_ERR: st = "RECV_ERR"; break;
+        case RPC_CRC_ERR: st = "CRC_ERR"; break;
         default: st = "UNKNOWN"; break;
     }
     printf("[T%d][%d][id=%u][%s] status=%s body=%.*s\n",
@@ -166,8 +167,15 @@ int main(int argc, char *argv[])
 
 # else
 
-    int res = add_i32(1, 2);
-    printf("add_i32(1, 2) = %d\n", res);
+    if (rpc_async_init("127.0.0.1", 8888, 4, 64, 3000) != 0) {
+        fprintf(stderr, "rpc_async_init failed\n");
+        return -1;
+    }
+
+    int32_t res = add_i32_manual(1, 2);
+    printf("add_i32_manual(1, 2) = %d\n", res);
+
+    rpc_async_shutdown();
 
 #endif
     return 0;

@@ -2,8 +2,11 @@
 #define EPC_PENDING_H
 
 #include <stdint.h>
-#include "rpc_async.h"
+
 #include "third_party/uthash.h"
+
+#include "rpc_future.h"
+
 
 /**
  * @file pending.h
@@ -17,7 +20,7 @@ typedef struct {
     uint32_t id;            // 请求 ID (Key)
     int fd;                 // 关联的连接 fd
     rpc_async_cb cb;        // 回调函数
-    void* user_data;        // 用户自定义数据
+    rpc_future_t* future;   // 关联的 future
     long long expire_ms;    // 超时时间戳 (绝对时间)
     UT_hash_handle hh;      // uthash 句柄
 } rpc_pending_t;
@@ -38,25 +41,27 @@ void pending_destroy(void);
  * @param id 请求 ID
  * @param fd 连接 fd
  * @param cb 回调函数
- * @param user_data 用户数据
+ * @param future 关联的 future
  * @param expire_ms 超时时间
  * @return 0 成功, -1 失败
  */
-int pending_add(uint32_t id, int fd, rpc_async_cb cb, void* user_data, long long expire_ms);
-
-/**
- * @brief 查找指定的挂起请求
- * @param id 请求 ID
- * @return 成功返回指针（注意线程安全，通常建议使用 take 接口），失败返回 NULL
- */
-rpc_pending_t* pending_find(uint32_t id);
+int pending_add(uint32_t id, int fd, rpc_async_cb cb, rpc_future_t* future, long long expire_ms);
 
 /**
  * @brief 查找并从哈希表中移除指定的挂起请求（原子操作）
  * @param id 请求 ID
- * @return 成功返回指针（调用者负责 free），失败返回 NULL
+ * @param out 输出找到的请求数据
+ * @return 0 成功（找到并移除）, -1 失败（未找到）
  */
-rpc_pending_t* pending_take(uint32_t id);
+int pending_take(uint32_t id, rpc_pending_t* out);
+
+/**
+ * @brief 根据 fd 查找并移除请求（通常用于连接断开时的清理）
+ * @param fd 连接 fd
+ * @param out 输出找到的请求数据
+ * @return 0 成功, -1 失败
+ */
+int pending_take_by_fd(int fd, rpc_pending_t* out);
 
 /**
  * @brief 删除指定的挂起请求并释放内存
@@ -64,12 +69,5 @@ rpc_pending_t* pending_take(uint32_t id);
  * @return 0 成功, -1 失败
  */
 int pending_delete(uint32_t id);
-
-/**
- * @brief 根据 fd 查找并移除请求（通常用于连接断开时的清理）
- * @param fd 连接 fd
- * @return 成功返回指针，失败返回 NULL
- */
-rpc_pending_t* pending_take_by_fd(int fd);
 
 #endif // EPC_PENDING_H

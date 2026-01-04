@@ -32,14 +32,14 @@ void pending_destroy(void) {
     pthread_mutex_destroy(&g_pending_mu);
 }
 
-int pending_add(uint32_t id, int fd, rpc_async_cb cb, void* user_data, long long expire_ms) {
+int pending_add(uint32_t id, int fd, rpc_async_cb cb, rpc_future_t* future, long long expire_ms) {
     rpc_pending_t* p = (rpc_pending_t*)calloc(1, sizeof(rpc_pending_t));
     if (!p) return -1;
 
     p->id = id;
     p->fd = fd;
     p->cb = cb;
-    p->user_data = user_data;
+    p->future = future;
     p->expire_ms = expire_ms;
 
     pthread_mutex_lock(&g_pending_mu);
@@ -56,44 +56,42 @@ int pending_add(uint32_t id, int fd, rpc_async_cb cb, void* user_data, long long
     return 0;
 }
 
-rpc_pending_t* pending_find(uint32_t id) {
+int pending_take(uint32_t id, rpc_pending_t* out) {
     rpc_pending_t* p = NULL;
-    pthread_mutex_lock(&g_pending_mu);
-    HASH_FIND_INT(g_pending_table, &id, p);
-    pthread_mutex_unlock(&g_pending_mu);
-    return p;
-}
-
-rpc_pending_t* pending_take(uint32_t id) {
-    rpc_pending_t* p = NULL;
+    int ret = -1;
     pthread_mutex_lock(&g_pending_mu);
     HASH_FIND_INT(g_pending_table, &id, p);
     if (p) {
+        if (out) {
+            *out = *p; // 拷贝数据
+        }
         HASH_DEL(g_pending_table, p);
+        free(p);
+        ret = 0;
     }
     pthread_mutex_unlock(&g_pending_mu);
-    return p;
+    return ret;
 }
 
 int pending_delete(uint32_t id) {
-    rpc_pending_t* p = pending_take(id);
-    if (p) {
-        free(p);
-        return 0;
-    }
-    return -1;
+    return pending_take(id, NULL);
 }
 
-rpc_pending_t* pending_take_by_fd(int fd) {
-    rpc_pending_t *p, *tmp, *found = NULL;
+int pending_take_by_fd(int fd, rpc_pending_t* out) {
+    rpc_pending_t *p, *tmp;
+    int ret = -1;
     pthread_mutex_lock(&g_pending_mu);
     HASH_ITER(hh, g_pending_table, p, tmp) {
         if (p->fd == fd) {
+            if (out) {
+                *out = *p; // 拷贝数据
+            }
             HASH_DEL(g_pending_table, p);
-            found = p;
+            free(p);
+            ret = 0;
             break;
         }
     }
     pthread_mutex_unlock(&g_pending_mu);
-    return found;
+    return ret;
 }

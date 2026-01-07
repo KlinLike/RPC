@@ -9,5 +9,6 @@ typedef struct rpc_header_t {
 #define RPC_HEADER_LEN 12
 
 #define MAX_BODY_LEN 1024
+#define MAX_CONNECTIONS 32
 
 

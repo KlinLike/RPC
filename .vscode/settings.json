@@ -1,0 +1,28 @@
+{
+  // C/C++ 配置
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+  "C_Cpp.default.cStandard": "c99",
+  "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+  
+  // Clangd 配置（如果使用 clangd）
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}",
+    "--background-index",
+    "--clang-tidy",
+    "--header-insertion=iwyu",
+    "--completion-style=detailed",
+    "--function-arg-placeholders",
+    "--fallback-style=llvm"
+  ],
+  
+  // 文件排除（可选）
+  "files.exclude": {
+    "**/.git": true,
+    "**/build": false
+  },
+  
+  // 搜索排除（可选）
+  "search.exclude": {
+    "**/build": true
+  }
+}

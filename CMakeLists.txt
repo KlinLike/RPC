@@ -16,6 +16,9 @@ add_executable(client
     client/rpc_codec.c
     third_party/cJSON.c
     client/rpc_async.c
+    client/pending.c
+    client/conn_pool.c
+    client/epoll_api.c
     crc.c
 )
 

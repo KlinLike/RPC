@@ -145,7 +145,7 @@ int rpc_pool_get_conn(rpc_error_code* status_out) {
             }
             g_pool[i].fd = fd;
             g_pool[i].in_use = true;
-            if (epoll_add(fd) == 0) {
+            if (epoll_add_for_read(fd) == 0) {
                 g_pool[i].registered = true;
             } else {
                 g_pool[i].registered = false;

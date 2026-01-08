@@ -4,9 +4,7 @@
 #include <stdint.h>
 
 #include "third_party/uthash.h"
-
-#include "rpc_future.h"
-
+#include "rpc_types.h"
 
 /**
  * @file pending.h
@@ -16,7 +14,7 @@
 /**
  * @brief 挂起请求结构体
  */
-typedef struct {
+typedef struct rpc_pending_t {
     uint32_t id;            // 请求 ID (Key)
     int fd;                 // 关联的连接 fd
     rpc_async_cb cb;        // 回调函数

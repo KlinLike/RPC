@@ -94,11 +94,9 @@ int rpc_pool_init(const char* ip, int port, int max_conn) {
         g_pool[i].registered = false;
     }
 
-    // 把epoll放到连接池中初始化，因为连接池的某些功能依赖于epoll
-    if (epoll_init() < 0) {
-        rpc_pool_destroy();
-        return -1;
-    }
+    // 注意：epoll 应该在 rpc_async_init 中统一初始化，这里不再调用 epoll_init()
+    // 连接池依赖 epoll，但初始化顺序由上层控制
+    // 调用方必须确保在调用 rpc_pool_init 之前已经调用了 epoll_init()
 
     return 0;
 }

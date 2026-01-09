@@ -1,6 +1,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,19 @@ static int rpc_connect_once(const char* ip, int port) {
 
     if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         perror("connect");
+        close(fd);
+        return -1;
+    }
+
+    // 设置为非阻塞模式（必须！配合 epoll 使用）
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) {
+        perror("fcntl F_GETFL");
+        close(fd);
+        return -1;
+    }
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        perror("fcntl F_SETFL O_NONBLOCK");
         close(fd);
         return -1;
     }

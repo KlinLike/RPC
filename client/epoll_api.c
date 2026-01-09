@@ -39,10 +39,11 @@ int epoll_add_for_read(int fd) {
     }
     struct epoll_event ev;
     // EPOLLIN: 表示对应的文件描述符可以读
-    // EPOLLOUT: 表示对应的文件描述符可以写
     // EPOLLERR: 表示对应的文件描述符发生错误
     // EPOLLHUP: 表示对应的文件描述符被挂断
-    ev.events = EPOLLIN | EPOLLOUT | EPOLLERR | EPOLLHUP;
+    // EPOLLRDHUP: 表示对端关闭了写端（TCP半关闭）
+    // 注意：不监听 EPOLLOUT（可写），避免不必要的事件触发
+    ev.events = EPOLLIN | EPOLLERR | EPOLLHUP | EPOLLRDHUP;
     ev.data.fd = fd;
 
     if (epoll_ctl(g_epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0) {

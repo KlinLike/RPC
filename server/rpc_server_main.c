@@ -228,6 +228,7 @@ int main(int argc, char *argv[])
 
                 uint32_t resp_body_len = (uint32_t)strlen(resp_json);
                 uint32_t resp_crc32 = rpc_crc32(resp_json, resp_body_len);
+                printf("send %u bytes: %s\n", resp_body_len, resp_json);
                 rpc_header_t resp_header;
                 resp_header.version = htonl(version);
                 resp_header.body_len = htonl(resp_body_len);

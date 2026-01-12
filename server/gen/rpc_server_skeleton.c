@@ -220,7 +220,7 @@ char* rpc_server_dispatch(const char* req_json)
             return rpc_build_error_response(id, -32602, "Invalid params");
         }
         r = is_even_impl(n);
-        cJSON* result = cJSON_CreateBool(r ? cJSON_True : cJSON_False);
+        cJSON* result = cJSON_CreateBool(r);
         resp_json = rpc_build_result_response(id, result);
     }
     else if (strcmp(m, "strlen_s") == 0) {

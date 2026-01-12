@@ -239,7 +239,7 @@ def emit_source(idl: Dict) -> str:
         if result_type in ("i32", "double"):
             lines.append("        cJSON* result = cJSON_CreateNumber((double)r);")
         elif result_type == "bool":
-            lines.append("        cJSON* result = cJSON_CreateBool(r ? cJSON_True : cJSON_False);")
+            lines.append("        cJSON* result = cJSON_CreateBool(r);")
         elif result_type == "string":
             lines.append("        if (r == NULL) {")
             lines.append("            cJSON_Delete(params);")

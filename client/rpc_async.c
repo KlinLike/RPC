@@ -270,7 +270,7 @@ static void handle_epoll_in(int fd) {
             if (n < 0) {
                 if (errno == EINTR) continue;  // 被中断，重试
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    // 暂时没有数据，等待下次 EPOLLIN
+                    // EAGAIN 的本质含义是：“缓冲区空空如也，我连 1 个字节都给不了你，请下次再试。”
                     return;
                 }
                 // 读取错误

@@ -39,5 +39,7 @@ target_include_directories(server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
-target_link_libraries(server PRIVATE z)
-target_link_libraries(client PRIVATE z)
+find_package(Threads REQUIRED)
+
+target_link_libraries(server PRIVATE z Threads::Threads)
+target_link_libraries(client PRIVATE z Threads::Threads)

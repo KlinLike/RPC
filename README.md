@@ -155,9 +155,9 @@ make
 
 ## 客户端代码生成
 
-执行 `gen_rpc_client_api.py` 生成客户端代码：
-- **rpc_client_api.h**：客户端调用函数的声明
-- **rpc_client_api.c**：函数实现，负责将调用封装成 JSON-RPC 请求，发送并接收响应，解析后返回结果
+执行 `gen_rpc_client.py` 生成客户端代码：
+- **rpc_client_gen.h**：客户端调用函数的声明
+- **rpc_client_gen.c**：函数实现，负责将调用封装成 JSON-RPC 请求，发送并接收响应，解析后返回结果
 
 **stub 函数的注意事项：**
 - `string` 参数是 `const char*` 类型，所有权归调用方
@@ -167,7 +167,7 @@ make
 
 ## 服务端代码生成
 
-执行 `gen_rpc_server_skeleton.py` 生成服务端代码：
+执行 `gen_rpc_server.py` 生成服务端代码：
 - **rpc_server_skeleton.h/.c**：定义 `dispatch` 函数，用于解析请求 JSON，路由到对应的 `*_impl` 函数，并封装响应
 - **rpc_server_impl.h**：声明需要手动实现的业务函数
 

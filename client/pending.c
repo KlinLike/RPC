@@ -73,6 +73,26 @@ int pending_take(uint32_t id, rpc_pending_t* out) {
     return ret;
 }
 
+void pending_check_timeouts(long long now_ms, pending_timeout_handler handler) {
+    rpc_pending_t *p, *tmp;
+    pthread_mutex_lock(&g_pending_mu);
+    HASH_ITER(hh, g_pending_table, p, tmp) {
+        if (now_ms >= p->expire_ms) {
+            // 1. 从哈希表中移除
+            HASH_DEL(g_pending_table, p);
+            
+            // 2. 调用外部处理逻辑（比如通知回调和归还连接）
+            if (handler) {
+                handler(p);
+            }
+            
+            // 3. 释放内存
+            free(p);
+        }
+    }
+    pthread_mutex_unlock(&g_pending_mu);
+}
+
 int pending_delete(uint32_t id) {
     return pending_take(id, NULL);
 }

@@ -68,4 +68,16 @@ int pending_take_by_fd(int fd, rpc_pending_t* out);
  */
 int pending_delete(uint32_t id);
 
+/**
+ * @brief 超时处理回调
+ */
+typedef void (*pending_timeout_handler)(rpc_pending_t* pending);
+
+/**
+ * @brief 扫描并清理超时请求
+ * @param now_ms 当前时间戳
+ * @param handler 发现超时请求时的处理回调
+ */
+void pending_check_timeouts(long long now_ms, pending_timeout_handler handler);
+
 #endif // EPC_PENDING_H

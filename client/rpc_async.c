@@ -32,10 +32,14 @@
 
 #include "epoll_api.h"
 int g_epoll_fd = -1;                     // 全局 epoll fd
-static int g_timeout_ms = 5000;         // 默认超时时间（毫秒）
+static uint32_t g_request_id = 1;       // 全局请求 ID（线程安全）
+
 static pthread_t g_recv_thread;         // 接收线程
 static bool g_recv_thread_started = false;  // 接收线程是否已启动
-static uint32_t g_request_id = 1;       // 全局请求 ID（线程安全）
+
+static int g_timeout_ms = 5000;         // 默认超时时间（毫秒）
+static pthread_t g_timeout_thread;      // 超时检测线程
+static bool g_timeout_thread_started = false; // 超时线程是否已启动
 
 // ============================================================================
 // 接收上下文数据结构（状态机 + 缓冲区）
@@ -616,6 +620,44 @@ uint32_t rpc_async_next_id(void) {
 }
 
 // ============================================================================
+// 超时检测线程
+// ============================================================================
+
+/**
+ * @brief 超时请求处理回调
+ */
+static void handle_timeout(rpc_pending_t* pending) {
+    if (!pending) return;
+    
+    fprintf(stderr, "[timeout] 请求 id=%u 已超时 (fd=%d)\n", pending->id, pending->fd);
+    
+    // 1. 调用回调通知超时
+    if (pending->cb) {
+        pending->cb(pending, RPC_TIMEOUT, NULL, 0);
+    }
+    
+    // 2. 归还连接并标记为异常（因为超时可能是由于连接挂起或网络问题）
+    // 注意：超时后该连接的后续响应会被 handle_complete_response 忽略
+    rpc_pool_put_conn(pending->fd, true);
+}
+
+/**
+ * @brief 超时检测线程主循环
+ */
+static void timeout_thread(void) {
+    while (1) {
+        // 每 500ms 扫描一次
+        usleep(500 * 1000);
+        
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        long long now_ms = (long long)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+        
+        pending_check_timeouts(now_ms, handle_timeout);
+    }
+}
+
+// ============================================================================
 // 初始化和销毁
 // ============================================================================
 
@@ -658,13 +700,21 @@ int rpc_async_init(const char* ip, int port, int max_conn, int timeout_ms) {
 
     // 6. 启动接收线程
     if (pthread_create(&g_recv_thread, NULL, (void*(*)(void*))read_thread, NULL) != 0) {
-        perror("pthread_create failed");
+        perror("pthread_create read_thread failed");
         pending_destroy();
         rpc_pool_destroy();
         epoll_destroy();
         return -1;
     }
     g_recv_thread_started = true;
+
+    // 7. 启动超时检测线程
+    if (pthread_create(&g_timeout_thread, NULL, (void*(*)(void*))timeout_thread, NULL) != 0) {
+        perror("pthread_create timeout_thread failed");
+        rpc_async_shutdown();
+        return -1;
+    }
+    g_timeout_thread_started = true;
 
     return 0;
 }
@@ -673,7 +723,14 @@ int rpc_async_init(const char* ip, int port, int max_conn, int timeout_ms) {
  * @brief 停止异步客户端子系统，释放资源
  */
 void rpc_async_shutdown(void) {
-    // 1. 停止接收线程
+    // 1. 停止超时检测线程
+    if (g_timeout_thread_started) {
+        pthread_cancel(g_timeout_thread);
+        pthread_join(g_timeout_thread, NULL);
+        g_timeout_thread_started = false;
+    }
+
+    // 2. 停止接收线程
     if (g_recv_thread_started) {
         // 通过 pthread_cancel 取消线程
         pthread_cancel(g_recv_thread);
@@ -681,12 +738,12 @@ void rpc_async_shutdown(void) {
         g_recv_thread_started = false;
     }
 
-    // 2. 销毁 pending 模块（释放所有节点和锁）
+    // 3. 销毁 pending 模块（释放所有节点和锁）
     pending_destroy();
 
-    // 3. 销毁连接池（关闭 fd，销毁 pool 和 epoll）
+    // 4. 销毁连接池（关闭 fd，销毁 pool 和 epoll）
     rpc_pool_destroy();
     
-    // 4. 销毁 epoll
+    // 5. 销毁 epoll
     epoll_destroy();
 }

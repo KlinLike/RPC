@@ -16,7 +16,7 @@
 #include <string.h>
 
 #define THREAD_COUNT 10
-#define CALLS_PER_THREAD 100
+#define CALLS_PER_THREAD 10 // 每个线程执行多少轮，每轮都会调用所有的 RPC 接口
 
 typedef struct {
     int thread_id;

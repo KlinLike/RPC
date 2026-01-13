@@ -11,7 +11,6 @@
 
 #include "rpc.h"
 #include "rpc_async.h"
-#include "rpc_client_manual.h"
 #include "rpc_client_gen.h"
 #include <string.h>
 

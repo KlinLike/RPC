@@ -15,7 +15,6 @@ add_executable(server
 )
 add_executable(client
     client/rpc_client_main.c
-    client/rpc_client_manual.c
     client/gen/rpc_client_gen.c
     client/rpc_codec.c
     third_party/cJSON.c

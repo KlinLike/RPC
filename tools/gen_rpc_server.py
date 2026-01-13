@@ -280,7 +280,9 @@ def main() -> None:
     OUT_C.parent.mkdir(parents=True, exist_ok=True)
     OUT_IMPL_H.parent.mkdir(parents=True, exist_ok=True)
     OUT_H.write_text(emit_header(idl) + "\n", encoding="utf-8")
+    print(f"Generated {OUT_H}")
     OUT_C.write_text(emit_source(idl) + "\n", encoding="utf-8")
+    print(f"Generated {OUT_C}")
     # impl-only header
     impl_lines: List[str] = [
         "/*",
@@ -310,6 +312,7 @@ def main() -> None:
         impl_lines.append("")
 
     OUT_IMPL_H.write_text("\n".join(impl_lines) + "\n", encoding="utf-8")
+    print(f"Generated {OUT_IMPL_H}")
 
 if __name__ == "__main__":
     main()

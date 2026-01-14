@@ -170,6 +170,7 @@ int main(int argc, char *argv[])
 
                 // 处理协议级 PING
                 if (type == RPC_TYPE_PING) {
+                    printf("[Heartbeat] Received PING from fd %d, sending PONG\n", connfd);
                     uint8_t pong_buf[RPC_HEADER_LEN];
                     uint16_t v = htons(version);
                     uint16_t t = htons(RPC_TYPE_PONG);

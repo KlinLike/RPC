@@ -301,6 +301,7 @@ static void handle_epoll_in(int fd) {
                 
                 // 处理协议级 PONG
                 if (ctx->header.type == RPC_TYPE_PONG) {
+                    printf("[Heartbeat] Received PONG from fd %d, updating active time\n", fd);
                     // 仅更新活跃时间，不进入 BODY 状态，也不影响连接的借出状态
                     recv_ctx_reset(ctx);
                     rpc_pool_update_active(fd);

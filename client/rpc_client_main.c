@@ -110,6 +110,8 @@ void* test_worker(void* arg) {
     return NULL;
 }
 
+#define TEST_IDLE 1
+
 int main(int argc, char *argv[])
 {
     // 初始化异步客户端
@@ -119,6 +121,14 @@ int main(int argc, char *argv[])
         fprintf(stderr, "rpc_async_init failed\n");
         return -1;
     }
+
+#ifdef TEST_IDLE
+    printf("TEST_IDLE mode enabled. Client will stay idle to test protocol PING/PONG...\n");
+    printf("Press Ctrl+C to stop.\n");
+    while(1) {
+        sleep(1);
+    }
+#endif
 
     pthread_t threads[THREAD_COUNT];
     thread_result_t results[THREAD_COUNT];

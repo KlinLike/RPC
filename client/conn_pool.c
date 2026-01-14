@@ -106,6 +106,7 @@ int rpc_pool_init(const char* ip, int port, int max_conn) {
     }
 
     // 连接池初始化：创建并连接 max_conn 个连接
+    // NOTE:如果一开始就都连上，调用的速度会快。但如果到用的时候再连，可以节省资源（包括服务器资源）
     for (int i = 0; i < g_pool_size; ++i) {
         int fd = rpc_connect_once(ip, port);
         if (fd < 0) {
@@ -117,11 +118,7 @@ int rpc_pool_init(const char* ip, int port, int max_conn) {
         g_pool[i].last_active_ms = get_now_ms();
         
         // 核心改进：初始化时就加入 epoll 监听，以便处理心跳 PONG 和检测对端关闭
-        if (epoll_add_for_read(fd) == 0) {
-            g_pool[i].registered = true;
-        } else {
-            g_pool[i].registered = false;
-        }
+        epoll_add_for_read(fd);
     }
 
     // 注意：epoll 应该在 rpc_async_init 中统一初始化，这里不再调用 epoll_init()
@@ -169,11 +166,7 @@ int rpc_pool_get_conn(rpc_error_code* status_out) {
             g_pool[i].fd = fd;
             g_pool[i].in_use = true;
             g_pool[i].last_active_ms = get_now_ms();
-            if (epoll_add_for_read(fd) == 0) {
-                g_pool[i].registered = true;
-            } else {
-                g_pool[i].registered = false;
-            }
+            epoll_add_for_read(fd);
             if (status_out) *status_out = RPC_OK;
             pthread_mutex_unlock(&g_pool_mu);
             return fd;
@@ -205,10 +198,7 @@ void rpc_pool_put_conn(int fd, bool bad) {
         if (g_pool[i].fd == fd) {
             if (bad) {
                 // 只有在连接确认失效时才从 epoll 移除并关闭
-                if (g_pool[i].registered) {
-                    epoll_del(g_pool[i].fd);
-                    g_pool[i].registered = false;
-                }
+                epoll_del(g_pool[i].fd);
                 close(g_pool[i].fd); 
                 g_pool[i].fd = -1;
             } else {
@@ -231,9 +221,7 @@ void rpc_pool_destroy(void) {
     if (g_pool) {
         for (int i = 0; i < g_pool_size; ++i) {
             if (g_pool[i].fd >= 0) {
-                if (g_pool[i].registered) {
-                    epoll_del(g_pool[i].fd);
-                }
+                epoll_del(g_pool[i].fd);
                 close(g_pool[i].fd);
                 g_pool[i].fd = -1;
             }
@@ -270,9 +258,21 @@ void rpc_pool_heartbeat(void) {
 
     pthread_mutex_lock(&g_pool_mu);
     for (int i = 0; i < g_pool_size; i++) {
-        // 仅对空闲且活跃时间超过间隔的连接发送心跳
-        if (!g_pool[i].in_use && g_pool[i].fd >= 0 && 
-            (now - g_pool[i].last_active_ms > HEARTBEAT_INTERVAL_MS)) {
+        if (g_pool[i].fd < 0) continue;
+
+        // 1. 检查是否长期没有响应 (如 2 倍心跳间隔)
+        if (now - g_pool[i].last_active_ms > HEARTBEAT_INTERVAL_MS * 2) {
+            printf("[Heartbeat] Connection on fd %d timeout (no PONG for %lld ms), closing\n", 
+                   g_pool[i].fd, now - g_pool[i].last_active_ms);
+            epoll_del(g_pool[i].fd);
+            close(g_pool[i].fd);
+            g_pool[i].fd = -1;
+            g_pool[i].in_use = false;
+            continue;
+        }
+
+        // 2. 仅对空闲且活跃时间超过间隔的连接发送心跳
+        if (!g_pool[i].in_use && (now - g_pool[i].last_active_ms > HEARTBEAT_INTERVAL_MS)) {
             
             printf("[Heartbeat] Sending PING to fd %d\n", g_pool[i].fd);
             ssize_t n = send(g_pool[i].fd, ping_buf, RPC_HEADER_LEN, 0);

@@ -17,7 +17,6 @@
 typedef struct {
     int fd;
     bool in_use;
-    bool registered; // 是否已添加到 epoll
     long long last_active_ms; // 最后一次活跃（发送或接收）的时间戳
 } rpc_conn_t;
 

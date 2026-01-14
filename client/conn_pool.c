@@ -11,7 +11,11 @@
 #include "conn_pool.h"
 #include "epoll_api.h"
 
+#include <sys/time.h>
+#include "rpc.h"
+
 #define COMPATIBLE  0   // 兼容性开关
+#define HEARTBEAT_INTERVAL_MS 10000 // 10秒不活跃发送心跳
 
 // ---------- 连接池全局变量 ----------
 static rpc_conn_t* g_pool = NULL;   // 连接池
@@ -21,6 +25,12 @@ static int g_port = 0;              // 服务端口
 static pthread_mutex_t g_pool_mu = PTHREAD_MUTEX_INITIALIZER;   // 连接池互斥锁
 
 // ---------- 内部辅助函数 ----------
+
+static long long get_now_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (long long)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+}
 
 /**
  * 建立一个连接并返回 fd
@@ -96,7 +106,6 @@ int rpc_pool_init(const char* ip, int port, int max_conn) {
     }
 
     // 连接池初始化：创建并连接 max_conn 个连接
-    // NOTE:如果一开始就都连上，调用的速度会快。但如果到用的时候再连，可以节省资源（包括服务器资源）
     for (int i = 0; i < g_pool_size; ++i) {
         int fd = rpc_connect_once(ip, port);
         if (fd < 0) {
@@ -105,7 +114,14 @@ int rpc_pool_init(const char* ip, int port, int max_conn) {
         }
         g_pool[i].fd = fd;
         g_pool[i].in_use = false;
-        g_pool[i].registered = false;
+        g_pool[i].last_active_ms = get_now_ms();
+        
+        // 核心改进：初始化时就加入 epoll 监听，以便处理心跳 PONG 和检测对端关闭
+        if (epoll_add_for_read(fd) == 0) {
+            g_pool[i].registered = true;
+        } else {
+            g_pool[i].registered = false;
+        }
     }
 
     // 注意：epoll 应该在 rpc_async_init 中统一初始化，这里不再调用 epoll_init()
@@ -130,12 +146,7 @@ int rpc_pool_get_conn(rpc_error_code* status_out) {
             continue;
         if (g_pool[i].fd >= 0) {
             g_pool[i].in_use = true;
-            // 确保已在 epoll中监听
-            if (!g_pool[i].registered) {
-                if (epoll_add_for_read(g_pool[i].fd) == 0) {
-                    g_pool[i].registered = true;
-                }
-            }
+            // 连接已经在初始化或归还时保持在 epoll 中，无需重复添加
             fd = g_pool[i].fd;
             if (status_out) *status_out = RPC_OK;
             pthread_mutex_unlock(&g_pool_mu);
@@ -157,6 +168,7 @@ int rpc_pool_get_conn(rpc_error_code* status_out) {
             }
             g_pool[i].fd = fd;
             g_pool[i].in_use = true;
+            g_pool[i].last_active_ms = get_now_ms();
             if (epoll_add_for_read(fd) == 0) {
                 g_pool[i].registered = true;
             } else {
@@ -173,18 +185,35 @@ int rpc_pool_get_conn(rpc_error_code* status_out) {
     return -1;
 }
 
+void rpc_pool_update_active(int fd) {
+    if (fd < 0) return;
+    pthread_mutex_lock(&g_pool_mu);
+    for (int i = 0; i < g_pool_size; ++i) {
+        if (g_pool[i].fd == fd) {
+            g_pool[i].last_active_ms = get_now_ms();
+            pthread_mutex_unlock(&g_pool_mu);
+            return;
+        }
+    }
+    pthread_mutex_unlock(&g_pool_mu);
+}
+
 // 归还 fd；若 bad=true 则关闭并回收槽位
 void rpc_pool_put_conn(int fd, bool bad) {
     pthread_mutex_lock(&g_pool_mu);
     for (int i = 0; i < g_pool_size; ++i) {
         if (g_pool[i].fd == fd) {
-            if (g_pool[i].registered) {
-                epoll_del(g_pool[i].fd);
-                g_pool[i].registered = false;
-            }
             if (bad) {
+                // 只有在连接确认失效时才从 epoll 移除并关闭
+                if (g_pool[i].registered) {
+                    epoll_del(g_pool[i].fd);
+                    g_pool[i].registered = false;
+                }
                 close(g_pool[i].fd); 
                 g_pool[i].fd = -1;
+            } else {
+                // 正常归还：保持 epoll 监听，仅更新活跃时间
+                g_pool[i].last_active_ms = get_now_ms();
             }
             g_pool[i].in_use = false;
             pthread_mutex_unlock(&g_pool_mu);
@@ -192,7 +221,7 @@ void rpc_pool_put_conn(int fd, bool bad) {
         }
     }
     pthread_mutex_unlock(&g_pool_mu);
-    // 未找到：关闭避免泄漏
+    // 未找到：说明是外部创建或已清理的 fd，直接关闭避免泄漏
     if (fd >= 0) close(fd);
 }
 
@@ -221,4 +250,47 @@ void rpc_pool_destroy(void) {
     #endif
 
     epoll_destroy();
+}
+
+void rpc_pool_heartbeat(void) {
+    if (!g_pool) return;
+
+    long long now = get_now_ms();
+    
+    // 构造 PING 包缓冲区 (在循环外构造一次，重复使用)
+    uint8_t ping_buf[RPC_HEADER_LEN];
+    uint16_t v = htons(1);
+    uint16_t t = htons(RPC_TYPE_PING);
+    uint32_t bl = 0;
+    uint32_t c = 0;
+    memcpy(ping_buf, &v, 2);
+    memcpy(ping_buf + 2, &t, 2);
+    memcpy(ping_buf + 4, &bl, 4);
+    memcpy(ping_buf + 8, &c, 4);
+
+    pthread_mutex_lock(&g_pool_mu);
+    for (int i = 0; i < g_pool_size; i++) {
+        // 仅对空闲且活跃时间超过间隔的连接发送心跳
+        if (!g_pool[i].in_use && g_pool[i].fd >= 0 && 
+            (now - g_pool[i].last_active_ms > HEARTBEAT_INTERVAL_MS)) {
+            
+            printf("[Heartbeat] Sending PING to fd %d\n", g_pool[i].fd);
+            ssize_t n = send(g_pool[i].fd, ping_buf, RPC_HEADER_LEN, 0);
+            if (n < 0) {
+                if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                    // 信号中断或缓冲区满，本次跳过，不关闭连接
+                    // 出错跳过，很快这个函数又会再次执行，不用担心链接失效很久都没发现
+                    continue;
+                }
+                printf("[Heartbeat] Send PING failed on fd %d, error: %s, closing\n", 
+                       g_pool[i].fd, strerror(errno));
+                close(g_pool[i].fd);
+                g_pool[i].fd = -1;
+            } else {
+                // 更新时间，防止在等待 PONG 期间重复发送
+                g_pool[i].last_active_ms = now;
+            }
+        }
+    }
+    pthread_mutex_unlock(&g_pool_mu);
 }

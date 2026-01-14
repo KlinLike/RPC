@@ -163,9 +163,27 @@ int main(int argc, char *argv[])
 
                 // 解析RPC Header
                 rpc_header_t *header = (rpc_header_t *)rpc_header;
-                uint32_t version = ntohl(header->version);
+                uint16_t version = ntohs(header->version);
+                uint16_t type = ntohs(header->type);
                 uint32_t body_len = ntohl(header->body_len);
                 uint32_t crc32 = ntohl(header->crc32);
+
+                // 处理协议级 PING
+                if (type == RPC_TYPE_PING) {
+                    uint8_t pong_buf[RPC_HEADER_LEN];
+                    uint16_t v = htons(version);
+                    uint16_t t = htons(RPC_TYPE_PONG);
+                    uint32_t bl = 0;
+                    uint32_t c = 0;
+
+                    memcpy(pong_buf, &v, 2);
+                    memcpy(pong_buf + 2, &t, 2);
+                    memcpy(pong_buf + 4, &bl, 4);
+                    memcpy(pong_buf + 8, &c, 4);
+
+                    send(connfd, pong_buf, RPC_HEADER_LEN, 0);
+                    continue;
+                }
 
                 if (body_len > MAX_BODY_LEN) {
                     // Body长度超过限制，关闭连接
@@ -229,40 +247,31 @@ int main(int argc, char *argv[])
                 uint32_t resp_body_len = (uint32_t)strlen(resp_json);
                 uint32_t resp_crc32 = rpc_crc32(resp_json, resp_body_len);
                 printf("send %u bytes: %s\n", resp_body_len, resp_json);
-                rpc_header_t resp_header;
-                resp_header.version = htonl(version);
-                resp_header.body_len = htonl(resp_body_len);
-                resp_header.crc32 = htonl(resp_crc32);
 
-                ssize_t send_bytes = 0;
-                while (send_bytes < RPC_HEADER_LEN){
-                    ssize_t n = send(connfd, ((char*)&resp_header) + send_bytes, RPC_HEADER_LEN - send_bytes, 0);
-                    if (n == -1 && errno == EINTR) {
-                        continue; // EINTR等临时错误，继续重试
-                    }
-                    if (n < 0) {
-                        perror("send rpc body");
-                        is_error = true;
-                        break;
-                    }
-                    if (n == 0) {
-                        printf("send rpc body: connection closed\n");
-                        is_error = true;
-                        break;
-                    }
-                    send_bytes += n;
-                }
-                if (is_error) {
+                // 构造响应 Header
+                uint8_t resp_header_buf[RPC_HEADER_LEN];
+                uint16_t rv = htons(version);
+                uint16_t rt = htons(RPC_TYPE_DATA);
+                uint32_t rbl = htonl(resp_body_len);
+                uint32_t rc = htonl(resp_crc32);
+
+                memcpy(resp_header_buf, &rv, 2);
+                memcpy(resp_header_buf + 2, &rt, 2);
+                memcpy(resp_header_buf + 4, &rbl, 4);
+                memcpy(resp_header_buf + 8, &rc, 4);
+
+                if (send(connfd, resp_header_buf, RPC_HEADER_LEN, 0) < 0) {
+                    perror("send header");
                     close(connfd);
                     epoll_ctl(epollfd, EPOLL_CTL_DEL, connfd, NULL);
-                    free(resp_json);
                     free(body);
+                    free(resp_json);
                     continue;
                 }
 
-                send_bytes = 0;
-                while (send_bytes < resp_body_len){
-                    ssize_t n = send(connfd, resp_json + send_bytes, resp_body_len - send_bytes, 0);
+                size_t sent_body_bytes = 0;
+                while (sent_body_bytes < resp_body_len){
+                    ssize_t n = send(connfd, resp_json + sent_body_bytes, resp_body_len - sent_body_bytes, 0);
                     if (n == -1 && errno == EINTR) {
                         continue; // EINTR等临时错误，继续重试
                     }
@@ -276,7 +285,7 @@ int main(int argc, char *argv[])
                         is_error = true;
                         break;
                     }
-                    send_bytes += n;
+                    sent_body_bytes += n;
                 }
                 if (is_error){
                     close(connfd);

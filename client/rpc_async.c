@@ -294,9 +294,18 @@ static void handle_epoll_in(int fd) {
             if (ctx->header_received == RPC_HEADER_LEN) {
                 // ✅ Header 接收完成，解析并切换状态
                 rpc_header_t* hdr_net = (rpc_header_t*)ctx->header_buf;
-                ctx->header.version = ntohl(hdr_net->version);
+                ctx->header.version = ntohs(hdr_net->version);
+                ctx->header.type = ntohs(hdr_net->type);
                 ctx->header.body_len = ntohl(hdr_net->body_len);
                 ctx->header.crc32 = ntohl(hdr_net->crc32);
+                
+                // 处理协议级 PONG
+                if (ctx->header.type == RPC_TYPE_PONG) {
+                    // 仅更新活跃时间，不进入 BODY 状态，也不影响连接的借出状态
+                    recv_ctx_reset(ctx);
+                    rpc_pool_update_active(fd);
+                    return;
+                }
                 
                 // 校验 body_len 合法性
                 if (ctx->header.body_len > MAX_BODY_LEN) {
@@ -508,13 +517,19 @@ int rpc_async_call(const char* json, rpc_async_cb cb, rpc_future_t* future, uint
     }
 
     // 3. 构造并发送请求
-    rpc_header_t header;
-    header.version = htonl(1);
-    header.body_len = htonl((uint32_t)body_len);
-    header.crc32 = htonl(rpc_crc32(json, body_len));
+    uint8_t header_buf[RPC_HEADER_LEN];
+    uint16_t v = htons(1);
+    uint16_t t = htons(RPC_TYPE_DATA);
+    uint32_t bl = htonl((uint32_t)body_len);
+    uint32_t c = htonl(rpc_crc32(json, body_len));
+
+    memcpy(header_buf, &v, 2);
+    memcpy(header_buf + 2, &t, 2);
+    memcpy(header_buf + 4, &bl, 4);
+    memcpy(header_buf + 8, &c, 4);
 
     // 3.1 发送 Header
-    if (send_retry(fd, &header, RPC_HEADER_LEN) != 0) {
+    if (send_retry(fd, header_buf, RPC_HEADER_LEN) != 0) {
         // 发送失败：归还连接并清理 pending
         rpc_pool_put_conn(fd, true);
         rpc_pending_t p;
@@ -645,6 +660,7 @@ static void handle_timeout(rpc_pending_t* pending) {
  * @brief 超时检测线程主循环
  */
 static void timeout_thread(void) {
+    int heartbeat_counter = 0;
     while (1) {
         // 每 500ms 扫描一次
         usleep(500 * 1000);
@@ -653,7 +669,14 @@ static void timeout_thread(void) {
         gettimeofday(&tv, NULL);
         long long now_ms = (long long)tv.tv_sec * 1000LL + tv.tv_usec / 1000;
         
+        // 1. 检查 pending 请求超时
         pending_check_timeouts(now_ms, handle_timeout);
+
+        // 2. 每 2 秒检查一次连接池心跳 (4 * 500ms)
+        if (++heartbeat_counter >= 4) {
+            rpc_pool_heartbeat();
+            heartbeat_counter = 0;
+        }
     }
 }
 
